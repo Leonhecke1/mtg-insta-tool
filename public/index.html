@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>floating._.mana — Deck Tech Generator</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <h1>floating._.mana</h1>
+    <p class="subtitle">MTG Commander Deck-Tech &rarr; Instagram-Carousel-Generator</p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>Deckliste</h2>
+
+      <div class="tabs">
+        <button type="button" class="tab active" data-kind="raw">Rohtext</button>
+        <button type="button" class="tab" data-kind="moxfield">Moxfield-URL</button>
+      </div>
+
+      <textarea id="raw-input" rows="14" placeholder="Commander: Miirym, Sentinel Wyrm
+
+1 Sol Ring
+1 Arcane Signet
+...
+
+Maybeboard:
+1 Dragon Tempest
+..."></textarea>
+
+      <input id="moxfield-input" type="text" placeholder="https://www.moxfield.com/decks/xxxxxxxxxxxxxxxxxxxx" style="display:none" />
+
+      <h2>Einstellungen</h2>
+      <div class="settings-grid">
+        <label>
+          Wann posten?
+          <input id="scheduled-at" type="datetime-local" />
+          <small>Leer lassen = sofort (nach Bestaetigung)</small>
+        </label>
+        <label class="checkbox">
+          <input id="use-llm" type="checkbox" checked />
+          LLM-Texte (Gameplan/Upgrades/Caption) generieren
+        </label>
+        <label class="checkbox">
+          <input id="dry-run" type="checkbox" checked />
+          Dry-Run (nur rendern, NICHT auf Instagram posten)
+        </label>
+      </div>
+
+      <button id="generate-btn" class="primary">Generieren</button>
+      <p id="generate-status"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Jobs</h2>
+      <div id="jobs-list"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "PowerShell(npm *)",
+      "PowerShell(npm install *)",
+      "PowerShell(npm approve-builds *)",
+      "PowerShell(npm approve-scripts *)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx puppeteer browsers install chrome)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx tsc -p tsconfig.json --noEmit)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx ts-node src/cli.ts generate ./scratch-decklist.txt --no-llm)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; try { $r = Invoke-WebRequest -Uri \"https://api.scryfall.com/cards/named?exact=Sol%20Ring\" -UseBasicParsing; $r.StatusCode } catch { $_.Exception.Message })",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"https://api.scryfall.com/cards/named?exact=Sol%20Ring\" -UseBasicParsing } catch { $_.Exception.Response.StatusCode.Value__; $stream = $_.Exception.Response.GetResponseStream\\(\\); $reader = New-Object System.IO.StreamReader\\($stream\\); $reader.ReadToEnd\\(\\) })",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"https://api.scryfall.com/cards/named?exact=Sol%20Ring\")",
+      "Bash(curl -s \"https://api.scryfall.com/cards/named?exact=Sol%20Ring\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -X POST -H \"Content-Type: application/json\" -d '{\"identifiers\":[{\"name\":\"Sol Ring\"}]}' https://api.scryfall.com/cards/collection)",
+      "PowerShell(curl.exe -s -o NUL -w \"%{http_code}`n\" \"https://api.scryfall.com/cards/named?exact=Sol%20Ring\")",
+      "PowerShell(curl.exe -s -o NUL -w \"%{http_code}`n\" -X POST -H \"Content-Type: application/json\" -d '{\\\\\"identifiers\\\\\":[{\\\\\"name\\\\\":\\\\\"Sol Ring\\\\\"}]}' https://api.scryfall.com/cards/collection)",
+      "PowerShell(curl.exe -s -w \"`nHTTP:%{http_code}`n\" -X POST -H \"Content-Type: application/json\" --data \"@C:\\\\Users\\\\leonh\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-leonh-Desktop-Projekte-mtg-insta-tool\\\\e18017c5-cd67-4c44-a242-c9e1849d199c\\\\scratchpad\\\\scry-test.json\" https://api.scryfall.com/cards/collection)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-leonh-Desktop-Projekte-mtg-insta-tool\\\\e18017c5-cd67-4c44-a242-c9e1849d199c\\\\scratchpad\\\\fetch-test.js\")",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-leonh-Desktop-Projekte-mtg-insta-tool\\\\e18017c5-cd67-4c44-a242-c9e1849d199c\\\\scratchpad\\\\axios-test.js\")",
+      "PowerShell(curl.exe -s -w \"`nHTTP:%{http_code}`n\" -X POST -H \"Content-Type: application/json\" -H \"User-Agent: mtg-insta-tool/0.1\" --data \"@C:\\\\Users\\\\leonh\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-leonh-Desktop-Projekte-mtg-insta-tool\\\\e18017c5-cd67-4c44-a242-c9e1849d199c\\\\scratchpad\\\\scry-test.json\" https://api.scryfall.com/cards/collection | Select-Object -First 3)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-leonh-Desktop-Projekte-mtg-insta-tool\\\\e18017c5-cd67-4c44-a242-c9e1849d199c\\\\scratchpad\\\\fetch-test2.js\")",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-leonh-Desktop-Projekte-mtg-insta-tool\\\\e18017c5-cd67-4c44-a242-c9e1849d199c\\\\scratchpad\\\\fetch-test3.js\")",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-leonh-Desktop-Projekte-mtg-insta-tool\\\\e18017c5-cd67-4c44-a242-c9e1849d199c\\\\scratchpad\\\\fetch-test4.js\")",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; 1..3 | ForEach-Object { node \"C:\\\\Users\\\\leonh\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-leonh-Desktop-Projekte-mtg-insta-tool\\\\e18017c5-cd67-4c44-a242-c9e1849d199c\\\\scratchpad\\\\fetch-test3.js\" | Select-Object -First 1 })",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx tsc -p tsconfig.json)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; node dist/server.js)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-leonh-Desktop-Projekte-mtg-insta-tool\\\\e18017c5-cd67-4c44-a242-c9e1849d199c\\\\scratchpad\\\\api-test.js\")"
+    ]
+  }
+}
