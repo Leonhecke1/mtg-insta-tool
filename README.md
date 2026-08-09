@@ -31,8 +31,14 @@ Ohne Web-UI direkt in der Konsole testen:
 npm run generate -- ./meine-deckliste.txt
 npm run generate -- --moxfield https://www.moxfield.com/decks/xxxxxxxx
 npm run generate -- --archidekt https://archidekt.com/decks/xxxxxxx/deck-name
-npm run generate -- ./meine-deckliste.txt --no-llm   # ohne Anthropic-Aufruf, Platzhaltertexte
+npm run generate -- ./meine-deckliste.txt --llm   # mit echten Anthropic-Texten statt Platzhaltern
 ```
+
+LLM-Texte (Gameplan/Upgrades/Caption) sind standardmaessig AUS - ohne
+`--llm` (bzw. im Web-UI ohne die Checkbox) werden Platzhaltertexte genutzt,
+kein Anthropic-API-Aufruf noetig. Anthropics API wird separat vom
+claude.ai/Claude-Code-Zugang abgerechnet (eigenes Guthaben noetig) - wer
+das nicht will, laesst die LLM-Option einfach aus.
 
 Ergebnis liegt danach in `out/<jobId>/`: `slide-01.png` ... , `caption.txt`
 und `deck-tech.zip` (enthaelt beides).

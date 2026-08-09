@@ -8,21 +8,24 @@ import { runPipeline } from "./pipeline";
  * Rendert immer nur lokal (Slides + caption.txt + ZIP), postet nie irgendwohin.
  *
  * Usage:
- *   ts-node src/cli.ts generate ./decklist.txt [--no-llm]
+ *   ts-node src/cli.ts generate ./decklist.txt [--llm]
  *   ts-node src/cli.ts generate --moxfield https://www.moxfield.com/decks/xxxx
  *   ts-node src/cli.ts generate --archidekt https://archidekt.com/decks/xxxx
+ *
+ * LLM-Texte sind standardmaessig AUS (Fallback-Platzhaltertexte) - braucht
+ * sonst Anthropic-API-Guthaben. Mit --llm explizit aktivieren.
  */
 async function main() {
   const [, , cmd, ...rest] = process.argv;
 
   if (cmd !== "generate") {
     console.error(
-      "Nutzung: ts-node src/cli.ts generate <decklist.txt|--moxfield URL|--archidekt URL> [--no-llm]"
+      "Nutzung: ts-node src/cli.ts generate <decklist.txt|--moxfield URL|--archidekt URL> [--llm]"
     );
     process.exit(1);
   }
 
-  const useLlm = !rest.includes("--no-llm");
+  const useLlm = rest.includes("--llm");
   const moxfieldIdx = rest.indexOf("--moxfield");
   const archidektIdx = rest.indexOf("--archidekt");
 

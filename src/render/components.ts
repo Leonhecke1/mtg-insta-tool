@@ -1,7 +1,8 @@
 import { ColorCode } from "../types";
-import { MANA_CIRCLE_COLORS } from "./theme";
+import { MANA_CIRCLE_COLORS, SLIDE_HEIGHT, SLIDE_WIDTH } from "./theme";
 
 export interface CircleSpec {
+  code: ColorCode;
   color: string;
   size: number; // px
   top: number; // % (kann <0 oder >100 sein fuer angeschnittene Kreise)
@@ -10,11 +11,18 @@ export interface CircleSpec {
   opacity: number;
 }
 
+const CIRCLE_PLACEMENT_ATTEMPTS = 80;
+const CIRCLE_MIN_GAP_PX = 18; // Mindestabstand zwischen Kreisraendern
+
 /**
- * Deterministisch-zufaellige Platzierung schwebender Mana-Kreise
- * (SPEC.md Design-System "Markenzeichen"). "seed" haelt das Layout pro
- * Slide-Typ stabil, waehrend sich die Farben je nach Deck-Farbidentitaet
- * aendern.
+ * Deterministisch-zufaellige, ueberlappungsfreie Platzierung schwebender
+ * Mana-Kreise (SPEC.md Design-System "Markenzeichen"). "seed" haelt das
+ * Layout pro Slide-Typ stabil, waehrend sich die Farben je nach
+ * Deck-Farbidentitaet aendern. Jeder neue Kreis wird gegen alle bereits
+ * platzierten geprueft (Abstand der Mittelpunkte >= Radiensumme + Gap);
+ * nach CIRCLE_PLACEMENT_ATTEMPTS Versuchen wird die zuletzt geprobte
+ * Position uebernommen (verhindert eine Endlosschleife bei sehr vielen
+ * grossen Kreisen).
  */
 export function floatingManaCircles(
   colorIdentity: ColorCode[],
@@ -34,13 +42,33 @@ export function floatingManaCircles(
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 
+  const placed: { cx: number; cy: number; r: number }[] = [];
+
   for (let i = 0; i < count; i++) {
-    const color = colors[i % colors.length];
+    const code = colors[i % colors.length];
+    const size = 220 + rand() * 260;
+    const r = size / 2;
+
+    let top = 0;
+    let left = 0;
+    for (let attempt = 0; attempt < CIRCLE_PLACEMENT_ATTEMPTS; attempt++) {
+      top = -10 + rand() * 110;
+      left = -10 + rand() * 110;
+      const cx = (left / 100) * SLIDE_WIDTH;
+      const cy = (top / 100) * SLIDE_HEIGHT;
+      const collides = placed.some(
+        (p) => Math.hypot(cx - p.cx, cy - p.cy) < r + p.r + CIRCLE_MIN_GAP_PX
+      );
+      if (!collides) break;
+    }
+    placed.push({ cx: (left / 100) * SLIDE_WIDTH, cy: (top / 100) * SLIDE_HEIGHT, r });
+
     circles.push({
-      color: MANA_CIRCLE_COLORS[color],
-      size: 220 + rand() * 260,
-      top: -10 + rand() * 110,
-      left: -10 + rand() * 110,
+      code,
+      color: MANA_CIRCLE_COLORS[code],
+      size,
+      top,
+      left,
       rotate: rand() * 30 - 15,
       opacity: 0.55 + rand() * 0.35,
     });
@@ -48,6 +76,12 @@ export function floatingManaCircles(
   return circles;
 }
 
+/**
+ * Schwebende Mana-Kreise mit echtem Mana-Symbol als Wasserzeichen darin
+ * (SPEC.md Design-System: "echte Symbole in den Kreisen ... via Mana-Font").
+ * Symbol ist tonal abgesetzt (dunklere Variante der Kreisfarbe), damit es
+ * sich dezent statt plakativ einfuegt.
+ */
 export function renderManaCircles(circles: CircleSpec[]): string {
   return circles
     .map(
@@ -58,7 +92,11 @@ export function renderManaCircles(circles: CircleSpec[]): string {
       background:${c.color};
       transform: translate(-50%, -50%) rotate(${c.rotate}deg);
       opacity:${c.opacity};
-    "></div>`
+    ">
+      <i class="ms ms-${c.code.toLowerCase()} mana-circle-symbol" style="font-size:${
+        c.size * 0.52
+      }px;"></i>
+    </div>`
     )
     .join("\n");
 }

@@ -43,6 +43,14 @@ export function buildSlideHtml(content: string, opts: SlideOptions = {}): string
     border-radius: 50%;
     z-index: 0;
     filter: blur(0.3px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .mana-circle-symbol {
+    color: rgba(31, 29, 24, 0.16);
+    line-height: 1;
   }
   .handle-signature {
     position: absolute;

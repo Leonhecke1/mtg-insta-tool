@@ -56,7 +56,7 @@ app.post("/api/jobs", async (req, res) => {
   const body = req.body ?? {};
   const kind =
     body.kind === "moxfield" ? "moxfield" : body.kind === "archidekt" ? "archidekt" : "raw";
-  const useLlm = body.useLlm !== false;
+  const useLlm = body.useLlm === true;
 
   if (kind === "raw" && !body.raw) {
     return res.status(400).json({ error: "raw-Deckliste fehlt" });

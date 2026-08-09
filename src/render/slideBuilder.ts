@@ -20,11 +20,15 @@ function isArtifactOrEnchantment(c: EnrichedCard, alreadyCreature: boolean, alre
 }
 
 /**
- * Baut die geordnete Liste der Slide-HTML-Dokumente (max. 10, siehe
- * SPEC.md "Slide-Struktur"). Reihenfolge: Cover, Kreaturen+Commander,
- * Spells, Artefakte/Verzauberungen, Gameplan, Preis, Upgrades (nur falls
- * Maybeboard vorhanden).
+ * Baut die geordnete Liste der Slide-HTML-Dokumente. Kein API-Publish
+ * mehr (siehe README) -> kein 10-Bilder-Hardlimit der Instagram Graph API
+ * mehr noetig; Obergrenze ist die von Instagram fuer manuelle
+ * Carousel-Uploads (20, siehe SPEC.md "Instagram-Publishing"). Reihenfolge:
+ * Cover, Kreaturen+Commander, Spells, Artefakte/Verzauberungen, Laender,
+ * Gameplan, Preis, Upgrades (nur falls Maybeboard vorhanden).
  */
+const MAX_SLIDES = 20;
+
 export function buildSlides(deck: Deck, texts: GeneratedTexts): string[] {
   const creatures = deck.mainboard.filter(isCreature);
   const lands = deck.mainboard.filter(isLand);
@@ -47,16 +51,24 @@ export function buildSlides(deck: Deck, texts: GeneratedTexts): string[] {
     slides.push(cropGridSlide("Spells", spells.length, spells, deck.colorIdentity, 3));
   }
 
-  const artTitle =
-    lands.length > 0
-      ? `Artefakte + Verzauberungen`
-      : "Artefakte + Verzauberungen";
   if (artifactsEnchantments.length > 0) {
-    const label =
-      lands.length > 0 ? `${artTitle} (+ ${lands.length} Laender)` : artTitle;
     slides.push(
-      cropGridSlide(label, artifactsEnchantments.length, artifactsEnchantments, deck.colorIdentity, 4)
+      cropGridSlide(
+        "Artefakte + Verzauberungen",
+        artifactsEnchantments.length,
+        artifactsEnchantments,
+        deck.colorIdentity,
+        4
+      )
     );
+  }
+
+  if (lands.length > 0) {
+    // count = physische Gesamtzahl (Basics zaehlen mehrfach), Kacheln
+    // bleiben pro Namen einmalig - Basics mit quantity>1 zeigen im
+    // Crop-Grid ein "Nx"-Badge statt N identischer Kacheln.
+    const totalLandCount = lands.reduce((sum, c) => sum + c.quantity, 0);
+    slides.push(cropGridSlide("Laender", totalLandCount, lands, deck.colorIdentity, 5));
   }
 
   slides.push(gameplanSlide(deck, texts.gameplan));
@@ -66,5 +78,5 @@ export function buildSlides(deck: Deck, texts: GeneratedTexts): string[] {
     slides.push(upgradesSlide(deck, texts.upgrades));
   }
 
-  return slides.slice(0, 10);
+  return slides.slice(0, MAX_SLIDES);
 }
