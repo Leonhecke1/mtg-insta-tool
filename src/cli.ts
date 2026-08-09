@@ -1,27 +1,30 @@
 import * as fs from "fs";
-import axios from "axios";
 import { nanoid } from "nanoid";
 import { runPipeline } from "./pipeline";
 
 /**
  * Minimales CLI fuer lokales Testen der Rendering-Pipeline ohne Web-UI
  * (siehe SPEC.md MVP-Reihenfolge - "jeder Schritt einzeln testbar").
- * Rendert IMMER nur lokal, published nie automatisch.
+ * Rendert immer nur lokal (Slides + caption.txt + ZIP), postet nie irgendwohin.
  *
  * Usage:
  *   ts-node src/cli.ts generate ./decklist.txt [--no-llm]
  *   ts-node src/cli.ts generate --moxfield https://www.moxfield.com/decks/xxxx
+ *   ts-node src/cli.ts generate --archidekt https://archidekt.com/decks/xxxx
  */
 async function main() {
   const [, , cmd, ...rest] = process.argv;
 
   if (cmd !== "generate") {
-    console.error("Nutzung: ts-node src/cli.ts generate <decklist.txt|--moxfield URL> [--no-llm]");
+    console.error(
+      "Nutzung: ts-node src/cli.ts generate <decklist.txt|--moxfield URL|--archidekt URL> [--no-llm]"
+    );
     process.exit(1);
   }
 
   const useLlm = !rest.includes("--no-llm");
   const moxfieldIdx = rest.indexOf("--moxfield");
+  const archidektIdx = rest.indexOf("--archidekt");
 
   const jobId = nanoid(10);
 
@@ -29,6 +32,14 @@ async function main() {
     const url = rest[moxfieldIdx + 1];
     if (!url) throw new Error("--moxfield braucht eine URL");
     const result = await runPipeline({ kind: "moxfield", moxfieldUrl: url }, { jobId, useLlm });
+    report(result);
+    return;
+  }
+
+  if (archidektIdx !== -1) {
+    const url = rest[archidektIdx + 1];
+    if (!url) throw new Error("--archidekt braucht eine URL");
+    const result = await runPipeline({ kind: "archidekt", archidektUrl: url }, { jobId, useLlm });
     report(result);
     return;
   }
@@ -46,6 +57,7 @@ async function main() {
 function report(result: Awaited<ReturnType<typeof runPipeline>>) {
   console.log(`\nFertig: ${result.jobDir}`);
   console.log(`Slides: ${result.slideFiles.length}`);
+  console.log(`ZIP: ${result.zipFile}`);
   console.log(`Commander: ${result.deck.commander.name}`);
   console.log(`Karten: ${result.deck.cardCount}, Preis: ${result.deck.totalPriceEur.toFixed(2)} EUR`);
   if (result.notFoundNames.length > 0) {
@@ -54,14 +66,6 @@ function report(result: Awaited<ReturnType<typeof runPipeline>>) {
 }
 
 main().catch((err) => {
-  if (axios.isAxiosError(err)) {
-    console.error(
-      `HTTP-Fehler ${err.response?.status ?? ""} bei ${err.config?.url}: ${
-        typeof err.response?.data === "string" ? err.response.data.slice(0, 300) : JSON.stringify(err.response?.data)
-      }`
-    );
-  } else {
-    console.error(err instanceof Error ? err.message : err);
-  }
+  console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });

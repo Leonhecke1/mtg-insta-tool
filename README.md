@@ -1,12 +1,17 @@
 # mtg-insta-tool
 
-MTG-Commander-Deckliste einfuegen &rarr; Instagram-Carousel-Post (Slides +
-Caption) generieren &rarr; optional zeitgesteuert automatisch auf
-`floating._.mana` veroeffentlichen.
+MTG-Commander-Deckliste einfuegen &rarr; Instagram-Carousel-Post-Material
+(Slides + Caption) generieren &rarr; als ZIP herunterladen.
 
-Siehe `SPEC.md` fuer die vollstaendige Projekt-Spezifikation (Design-System,
-Slide-Struktur, Instagram-API-Flow etc.). Dieses README beschreibt nur
-Setup und Betrieb.
+**Kein automatischer Instagram-Upload.** Das Tool rendert die Slides und
+die Caption und packt beides in eine ZIP-Datei - das Posten auf Instagram
+macht man selbst (z.B. ueber die Instagram-App, ggf. mit deren eigener
+Planungsfunktion). Das ist eine bewusste Abweichung von `SPEC.md`, das noch
+einen automatischen Graph-API-Publish-Flow beschreibt; dieser wurde nicht
+gebaut.
+
+Siehe `SPEC.md` fuer die Design-System- und Slide-Struktur-Spezifikation.
+Dieses README beschreibt Setup und Betrieb des tatsaechlich gebauten Tools.
 
 ## Setup
 
@@ -20,15 +25,17 @@ npm start
 
 Waehrend der Entwicklung: `npm run dev` (Hot-Reload via ts-node-dev).
 
-Ohne Web-UI direkt in der Konsole testen (rendert nur lokal, published nie):
+Ohne Web-UI direkt in der Konsole testen:
 
 ```bash
 npm run generate -- ./meine-deckliste.txt
 npm run generate -- --moxfield https://www.moxfield.com/decks/xxxxxxxx
+npm run generate -- --archidekt https://archidekt.com/decks/xxxxxxx/deck-name
 npm run generate -- ./meine-deckliste.txt --no-llm   # ohne Anthropic-Aufruf, Platzhaltertexte
 ```
 
-Ergebnis liegt danach in `out/<jobId>/slide-01.png` ... + `caption.txt`.
+Ergebnis liegt danach in `out/<jobId>/`: `slide-01.png` ... , `caption.txt`
+und `deck-tech.zip` (enthaelt beides).
 
 ## .env konfigurieren
 
@@ -37,45 +44,30 @@ Ergebnis liegt danach in `out/<jobId>/slide-01.png` ... + `caption.txt`.
 | `PORT` | Server | Default 3000 |
 | `BASIC_AUTH_USER` / `BASIC_AUTH_PASS` | Web-UI-Schutz | **Unbedingt setzen**, sobald der Server oeffentlich erreichbar ist |
 | `ANTHROPIC_API_KEY` | Gameplan-/Upgrade-/Caption-Texte | Ohne Key: automatischer Fallback auf Platzhaltertexte |
-| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL` | Instagram-Publish | Cloudflare R2 empfohlen (siehe SPEC.md); nur noetig, sobald wirklich (nicht als Dry-Run) veroeffentlicht wird |
-| `IG_USER_ID`, `IG_ACCESS_TOKEN` | Instagram-Publish | Instagram-Business/Creator-Account, Meta-App mit "Instagram API with Instagram Login" |
 
-Scryfall und Moxfield brauchen keine Keys.
-
-**Wichtig:** Instagram-Graph-API-Endpoints aendern sich gelegentlich
-(`src/publish/instagram.ts`, aktuell `v21.0`). Vor dem ersten echten Publish
-gegen die aktuelle Meta-Doku pruefen:
-https://developers.facebook.com/docs/instagram-platform/content-publishing
+Scryfall, Moxfield und Archidekt brauchen keine Keys.
 
 ## Benutzung (Web-UI)
 
 1. Server starten, `http://<server>:3000` oeffnen (Basic-Auth-Login).
-2. Deckliste als Rohtext einfuegen oder Moxfield-URL angeben.
-3. Einstellungen waehlen:
-   - **Wann posten?** leer = sofort (nach Bestaetigung), oder Datum/Uhrzeit
-     fuer zeitgesteuerten Post.
-   - **LLM-Texte generieren** an/aus (aus = schneller Preview ohne
-     Anthropic-Kosten).
-   - **Dry-Run** ist standardmaessig aktiv: es wird NUR gerendert, nichts
-     auf Instagram gepostet. Erst wenn diese Checkbox deaktiviert wird und
-     man den Bestaetigungsdialog bejaht, kann wirklich gepostet werden.
-4. "Generieren" klicken. Die Slides erscheinen nach kurzer Zeit (Puppeteer +
-   Scryfall + ggf. LLM brauchen ein paar Sekunden) als Vorschau im Job.
-5. Bei Dry-Run/geplanten Jobs: ueber "Jetzt veroeffentlichen" manuell
-   bestaetigen, oder bei einer Terminierung laeuft der Post automatisch zum
-   eingestellten Zeitpunkt (Minuten-Tick prueft faellige Jobs).
+2. Deckliste als Rohtext einfuegen, oder Moxfield-/Archidekt-URL angeben.
+3. **LLM-Texte generieren** an/aus (aus = schneller Preview ohne
+   Anthropic-Kosten, nutzt Platzhaltertexte).
+4. "Generieren" klicken. Nach kurzer Zeit (Puppeteer + Scryfall + ggf. LLM
+   brauchen ein paar Sekunden) erscheinen die Slides als Vorschau, plus
+   Links zu `caption.txt` und zum "ZIP herunterladen"-Button.
+5. ZIP herunterladen, Bilder + Caption manuell auf Instagram posten.
 
-Jobs, Status und geplante Zeitpunkte liegen persistent in
-`data/jobs.json` (lowdb/JSON) - ueberlebt Server-Neustarts.
+Die Job-Historie (Status, Deck-Zusammenfassung, Links) liegt persistent in
+`data/jobs.json` (lowdb/JSON) - ueberlebt Server-Neustarts. Es gibt kein
+Scheduling/Zeitplanung mehr - jede Generierung laeuft sofort beim Klick auf
+"Generieren".
 
 ## Deployment auf einem Server
 
-Das Scheduling (zeitgesteuertes Posten) braucht einen **dauerhaft
-laufenden Node-Prozess** (kein Serverless/Lambda) - der Minuten-Cron-Tick
-in `src/scheduler/scheduler.ts` prueft faellige Jobs nur, waehrend der
-Prozess laeuft.
-
-Empfehlung: [pm2](https://pm2.keymetrics.io/) oder systemd.
+Kein Cron/Scheduler mehr noetig - der Server kann auch kurzlebig laufen
+(z.B. nur waehrend man ihn nutzt). Fuer Dauerbetrieb trotzdem empfehlenswert:
+[pm2](https://pm2.keymetrics.io/) oder systemd.
 
 ```bash
 npm run build
@@ -88,32 +80,50 @@ Chromium-Abhaengigkeiten (`libnss3`, `libatk-bridge2.0-0`, etc.) - siehe
 [Puppeteer Troubleshooting](https://pptr.dev/troubleshooting).
 
 Server unbedingt hinter Basic-Auth (`.env`) oder einen eigenen
-Reverse-Proxy mit Auth stellen, bevor er oeffentlich erreichbar ist - das
-Tool kann echte Instagram-Posts ausloesen.
+Reverse-Proxy mit Auth stellen, bevor er oeffentlich erreichbar ist.
 
 ## Architektur-Kurzueberblick
 
 ```
 src/
-  parser/        Rohtext- und Moxfield-Parser -> RawDeckList
-  scryfall/       Batch-Anreicherung -> Deck (EnrichedCard[])
+  parser/        Rohtext-, Moxfield- und Archidekt-Parser -> RawDeckList
+  scryfall/       Batch-Anreicherung (+ Einzelabfrage-Fallback) -> Deck
   llm/            Anthropic-Textgenerierung (+ Fallback ohne LLM)
   render/         HTML/CSS-Templates pro Slide + Puppeteer-Renderer
-  publish/        S3/R2-Upload + Instagram Graph API
-  scheduler/      Job-Persistenz (lowdb) + Minuten-Cron fuer faellige Posts
-  pipeline.ts     Orchestriert Parser -> Scryfall -> Render -> Texte -> Dateien
+  output/         ZIP-Packaging (Slides + caption.txt -> deck-tech.zip)
+  jobs/           Job-Persistenz (lowdb) fuer die Web-UI-Historie
+  pipeline.ts     Orchestriert Parser -> Scryfall -> Render -> Texte -> ZIP
   server.ts       Express-Server + REST-API fuer das Web-UI
   cli.ts          Lokales Testen ohne Server
 public/           Statisches Web-UI (Vanilla HTML/CSS/JS, kein Build-Step)
 ```
 
+## Scryfall-Nutzung
+
+Scryfall ist die einzige Kartendatenquelle im Tool - nicht nur fuer Preise:
+Kartenbild (`image_uris.normal`, fuer Crop-Grid-Kacheln und die
+Vollformat-Upgrade-Slide), Manakosten, Type-Line, Oracle-Text (fuer die
+Kreaturen/Spells/Artefakte-Einteilung und als LLM-Kontext),
+Farbidentitaet (Deck-Farbidentitaet + Mana-Kreis-Farben) und der
+Cardmarket-EUR-Preis kommen alle von dort. Cardmarkets eigene API ist fuer
+neue Entwickler praktisch nicht zugaenglich, andere Quellen (MTGJSON,
+TCGplayer) liefern keine verlaesslichen EUR/Cardmarket-Preise - Scryfall
+bleibt die einzig praktikable Quelle.
+
+Der Batch-Endpoint (`POST /cards/collection`) hat in der Praxis
+gelegentlich 503/Cloudflare-Aussetzer gezeigt. `src/scryfall/client.ts`
+retried automatisch und weicht bei dauerhaftem Ausfall auf einzelne
+`GET /cards/named`-Abfragen pro Karte aus (langsamer, aber robuster).
+
 ## Bekannte Einschraenkungen / offene Punkte
 
-- Instagram- und Moxfield-API-Antwortformate sind gegen Stand der
-  Implementierung geprueft, aber beide APIs sind nicht (offiziell) stabil
-  versioniert - bei Fehlern zuerst hier ansetzen.
+- Moxfield- und Archidekt-API-Antwortformate sind gegen Stand der
+  Implementierung geprueft (inkl. echtem Live-Response), aber beide APIs
+  sind nicht offiziell stabil versioniert - bei Fehlern zuerst hier
+  ansetzen (`src/parser/moxfield.ts`, `src/parser/archidekt.ts`).
 - Slide-Design ist funktional nach SPEC.md umgesetzt, aber nicht
   pixelgenau gegen ein Figma-Mockup abgeglichen - bei Bedarf CSS in
   `src/render/slides/*.ts` und `src/render/theme.ts` anpassen.
-- Keine Bild-Caching-/Retry-Logik fuer Scryfall-Bild-URLs beim
-  Puppeteer-Rendering - bei sehr instabiler Verbindung ggf. Retry ergaenzen.
+- Kein automatischer Instagram-Publish (siehe oben) - `SPEC.md`s
+  "Instagram-Publishing"-Abschnitt beschreibt einen Graph-API-Flow, der
+  bewusst nicht Teil dieses Tools ist.

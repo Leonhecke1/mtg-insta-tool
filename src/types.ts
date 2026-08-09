@@ -65,35 +65,29 @@ export interface GenerateResult {
   slideFiles: string[];
   captionFile: string;
   caption: string;
+  zipFile: string;
   deck: Deck;
   texts: GeneratedTexts;
   notFoundNames: string[];
 }
 
-export type JobStatus =
-  | "scheduled"
-  | "generating"
-  | "ready"
-  | "publishing"
-  | "published"
-  | "failed"
-  | "cancelled";
+export type JobStatus = "generating" | "ready" | "failed";
 
-export interface PublishJob {
+export interface Job {
   id: string;
   createdAt: string;
-  scheduledAt: string | null; // ISO string; null = sofort/dry-run only
   status: JobStatus;
-  dryRun: boolean;
   input: {
-    kind: "raw" | "moxfield";
+    kind: "raw" | "moxfield" | "archidekt";
     raw?: string;
     moxfieldUrl?: string;
+    archidektUrl?: string;
   };
   result?: {
     jobDir: string;
     slideFiles: string[];
     captionFile: string;
+    zipFile: string;
     caption?: string;
     deckSummary?: {
       commander: string;
@@ -103,5 +97,4 @@ export interface PublishJob {
     };
   };
   error?: string;
-  publishedMediaId?: string;
 }

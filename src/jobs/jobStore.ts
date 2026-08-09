@@ -3,10 +3,10 @@ import * as path from "path";
 import low, { LowdbSync } from "lowdb";
 import FileSync from "lowdb/adapters/FileSync";
 import { config } from "../config";
-import { PublishJob } from "../types";
+import { Job } from "../types";
 
 interface Schema {
-  jobs: PublishJob[];
+  jobs: Job[];
 }
 
 let db: LowdbSync<Schema> | null = null;
@@ -20,30 +20,20 @@ function getDb(): LowdbSync<Schema> {
   return db;
 }
 
-export function createJob(job: PublishJob): void {
+export function createJob(job: Job): void {
   getDb().get("jobs").push(job).write();
 }
 
-export function updateJob(id: string, patch: Partial<PublishJob>): PublishJob | undefined {
+export function updateJob(id: string, patch: Partial<Job>): Job | undefined {
   const instance = getDb();
   instance.get("jobs").find({ id }).assign(patch).write();
   return getJob(id);
 }
 
-export function getJob(id: string): PublishJob | undefined {
+export function getJob(id: string): Job | undefined {
   return getDb().get("jobs").find({ id }).value();
 }
 
-export function listJobs(): PublishJob[] {
+export function listJobs(): Job[] {
   return [...getDb().get("jobs").value()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-export function dueJobs(nowIso: string): PublishJob[] {
-  return getDb()
-    .get("jobs")
-    .filter(
-      (j: PublishJob) =>
-        j.status === "scheduled" && j.scheduledAt !== null && j.scheduledAt <= nowIso
-    )
-    .value();
 }

@@ -103,11 +103,9 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
   background: #F4EFE4;
   color: #7A7263;
 }
-.badge.status-published { background: #C2D8CB; color: #1F1D18; }
+.badge.status-ready { background: #C2D8CB; color: #1F1D18; }
 .badge.status-failed { background: #EFA98B; color: #1F1D18; }
-.badge.status-scheduled { background: #B6CFE8; color: #1F1D18; }
-.badge.status-ready { background: #F8E7B9; color: #1F1D18; }
-.badge.dry { background: #eee; }
+.badge.status-generating { background: #F8E7B9; color: #1F1D18; }
 
 .deck-line { margin-top: 8px; font-size: 14px; }
 .error-line { color: #b23b3b; font-size: 13px; margin-top: 6px; }
@@ -115,12 +113,19 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 .slides { display: flex; gap: 6px; overflow-x: auto; margin-top: 10px; }
 .slides img { height: 120px; border-radius: 6px; border: 1px solid #E4DCC9; }
 
-.actions { margin-top: 10px; display: flex; gap: 8px; }
-.actions button {
+.actions { margin-top: 10px; display: flex; gap: 8px; align-items: center; }
+.actions a {
   border: 1px solid #E4DCC9;
   background: #F4EFE4;
   border-radius: 6px;
   padding: 6px 12px;
-  cursor: pointer;
   font-size: 13px;
+  text-decoration: none;
+  color: #1F1D18;
+}
+.actions a.zip-link {
+  background: #1F1D18;
+  color: #fff;
+  border-color: #1F1D18;
+  font-weight: 500;
 }

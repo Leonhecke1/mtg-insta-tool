@@ -3,9 +3,8 @@ import express, { NextFunction, Request, Response } from "express";
 import { nanoid } from "nanoid";
 import { config } from "./config";
 import { runPipeline } from "./pipeline";
-import { createJob, getJob, listJobs, updateJob } from "./scheduler/jobStore";
-import { publishExistingJob, startScheduler } from "./scheduler/scheduler";
-import { PublishJob } from "./types";
+import { createJob, getJob, listJobs, updateJob } from "./jobs/jobStore";
+import { Job } from "./types";
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
@@ -29,20 +28,16 @@ if (config.basicAuthUser && config.basicAuthPass) {
 app.use(express.static(path.join(__dirname, "..", "public")));
 app.use("/out", express.static(config.outDir));
 
-function toSummary(job: PublishJob) {
+function toSummary(job: Job) {
   return {
     id: job.id,
     createdAt: job.createdAt,
-    scheduledAt: job.scheduledAt,
     status: job.status,
-    dryRun: job.dryRun,
     error: job.error,
-    publishedMediaId: job.publishedMediaId,
     deckSummary: job.result?.deckSummary,
-    slideUrls: job.result?.slideFiles.map(
-      (f) => `/out/${job.id}/${path.basename(f)}`
-    ),
+    slideUrls: job.result?.slideFiles.map((f) => `/out/${job.id}/${path.basename(f)}`),
     captionUrl: job.result ? `/out/${job.id}/caption.txt` : undefined,
+    zipUrl: job.result ? `/out/${job.id}/${path.basename(job.result.zipFile)}` : undefined,
   };
 }
 
@@ -58,10 +53,9 @@ app.get("/api/jobs/:id", (req, res) => {
 
 app.post("/api/jobs", async (req, res) => {
   const body = req.body ?? {};
-  const kind = body.kind === "moxfield" ? "moxfield" : "raw";
-  const dryRun = body.dryRun !== false; // Default: Dry-Run (siehe SPEC "Standard ist Dry-Run")
+  const kind =
+    body.kind === "moxfield" ? "moxfield" : body.kind === "archidekt" ? "archidekt" : "raw";
   const useLlm = body.useLlm !== false;
-  const scheduledAt: string | null = body.scheduledAt || null;
 
   if (kind === "raw" && !body.raw) {
     return res.status(400).json({ error: "raw-Deckliste fehlt" });
@@ -69,32 +63,32 @@ app.post("/api/jobs", async (req, res) => {
   if (kind === "moxfield" && !body.moxfieldUrl) {
     return res.status(400).json({ error: "moxfieldUrl fehlt" });
   }
+  if (kind === "archidekt" && !body.archidektUrl) {
+    return res.status(400).json({ error: "archidektUrl fehlt" });
+  }
 
   const jobId = nanoid(10);
-  const job: PublishJob = {
+  const job: Job = {
     id: jobId,
     createdAt: new Date().toISOString(),
-    scheduledAt,
     status: "generating",
-    dryRun,
-    input: { kind, raw: body.raw, moxfieldUrl: body.moxfieldUrl },
+    input: { kind, raw: body.raw, moxfieldUrl: body.moxfieldUrl, archidektUrl: body.archidektUrl },
   };
   createJob(job);
 
   try {
     const result = await runPipeline(
-      { kind, raw: body.raw, moxfieldUrl: body.moxfieldUrl },
+      { kind, raw: body.raw, moxfieldUrl: body.moxfieldUrl, archidektUrl: body.archidektUrl },
       { jobId, useLlm }
     );
 
-    const isFutureSchedule = !!scheduledAt && new Date(scheduledAt).getTime() > Date.now();
-
     updateJob(jobId, {
-      status: isFutureSchedule ? "scheduled" : "ready",
+      status: "ready",
       result: {
         jobDir: result.jobDir,
         slideFiles: result.slideFiles,
         captionFile: result.captionFile,
+        zipFile: result.zipFile,
         caption: result.caption,
         deckSummary: {
           commander: result.deck.commander.name,
@@ -105,15 +99,6 @@ app.post("/api/jobs", async (req, res) => {
       },
     });
 
-    const updated = getJob(jobId)!;
-
-    // Sofort-Publish nur wenn explizit kein Dry-Run und keine (zukuenftige)
-    // Terminierung gewaehlt wurde - Preview/Bestaetigung bleibt Pflicht
-    // ueber den Client (siehe public/app.js: Bestaetigungsdialog).
-    if (!dryRun && !isFutureSchedule) {
-      await publishExistingJob(updated);
-    }
-
     res.json(toSummary(getJob(jobId)!));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -122,27 +107,6 @@ app.post("/api/jobs", async (req, res) => {
   }
 });
 
-app.post("/api/jobs/:id/publish-now", async (req, res) => {
-  const job = getJob(req.params.id);
-  if (!job) return res.status(404).json({ error: "Job nicht gefunden" });
-  if (job.status !== "ready" && job.status !== "scheduled") {
-    return res.status(400).json({ error: `Job hat Status "${job.status}", kann nicht published werden` });
-  }
-  await publishExistingJob(job);
-  res.json(toSummary(getJob(req.params.id)!));
-});
-
-app.post("/api/jobs/:id/cancel", (req, res) => {
-  const job = getJob(req.params.id);
-  if (!job) return res.status(404).json({ error: "Job nicht gefunden" });
-  if (job.status !== "scheduled") {
-    return res.status(400).json({ error: `Job hat Status "${job.status}", kann nicht storniert werden` });
-  }
-  updateJob(job.id, { status: "cancelled" });
-  res.json(toSummary(getJob(req.params.id)!));
-});
-
 app.listen(config.port, () => {
   console.log(`[server] mtg-insta-tool laeuft auf http://localhost:${config.port}`);
-  startScheduler();
 });

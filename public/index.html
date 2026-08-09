@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>floating._.mana</h1>
-    <p class="subtitle">MTG Commander Deck-Tech &rarr; Instagram-Carousel-Generator</p>
+    <p class="subtitle">MTG Commander Deck-Tech &rarr; Slides + Caption als ZIP</p>
   </header>
 
   <main>
@@ -19,6 +19,7 @@
       <div class="tabs">
         <button type="button" class="tab active" data-kind="raw">Rohtext</button>
         <button type="button" class="tab" data-kind="moxfield">Moxfield-URL</button>
+        <button type="button" class="tab" data-kind="archidekt">Archidekt-URL</button>
       </div>
 
       <textarea id="raw-input" rows="14" placeholder="Commander: Miirym, Sentinel Wyrm
@@ -32,21 +33,13 @@ Maybeboard:
 ..."></textarea>
 
       <input id="moxfield-input" type="text" placeholder="https://www.moxfield.com/decks/xxxxxxxxxxxxxxxxxxxx" style="display:none" />
+      <input id="archidekt-input" type="text" placeholder="https://archidekt.com/decks/xxxxxxx/deck-name" style="display:none" />
 
       <h2>Einstellungen</h2>
       <div class="settings-grid">
-        <label>
-          Wann posten?
-          <input id="scheduled-at" type="datetime-local" />
-          <small>Leer lassen = sofort (nach Bestaetigung)</small>
-        </label>
         <label class="checkbox">
           <input id="use-llm" type="checkbox" checked />
           LLM-Texte (Gameplan/Upgrades/Caption) generieren
-        </label>
-        <label class="checkbox">
-          <input id="dry-run" type="checkbox" checked />
-          Dry-Run (nur rendern, NICHT auf Instagram posten)
         </label>
       </div>
 

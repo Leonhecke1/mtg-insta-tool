@@ -31,7 +31,14 @@ interface CollectionResponse {
 
 const BATCH_SIZE = 75;
 const API_URL = "https://api.scryfall.com/cards/collection";
+const NAMED_URL = "https://api.scryfall.com/cards/named";
 const MAX_RETRIES = 3;
+const SCRYFALL_HEADERS = {
+  // Scryfall verlangt einen eindeutigen User-Agent + Accept-Header
+  // (https://scryfall.com/docs/api), sonst kommt ein 400 "generic_user_agent".
+  "User-Agent": "mtg-insta-tool/0.1 (+https://github.com/)",
+  Accept: "application/json",
+};
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -39,6 +46,12 @@ function chunk<T>(items: T[], size: number): T[][] {
     out.push(items.slice(i, i + size));
   }
   return out;
+}
+
+// 5xx = transiente Scryfall-Ausfaelle; 429 = Rate-Limit (auch transient,
+// mit Backoff erneut versuchen); alle anderen 4xx sind endgueltig.
+function isRetryableStatus(status: number | undefined): boolean {
+  return !status || status === 429 || status >= 500;
 }
 
 async function postCollectionWithRetry(
@@ -54,14 +67,7 @@ async function postCollectionWithRetry(
       // Scryfall-Seite. Falls das Problem zurueckkommt: hier zuerst pruefen.
       const res = await fetch(API_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // Scryfall verlangt einen eindeutigen User-Agent + Accept-Header
-          // (https://scryfall.com/docs/api), sonst kommt ein 400
-          // "generic_user_agent".
-          "User-Agent": "mtg-insta-tool/0.1 (+https://github.com/)",
-          Accept: "application/json",
-        },
+        headers: { "Content-Type": "application/json", ...SCRYFALL_HEADERS },
         body: JSON.stringify({ identifiers }),
       });
 
@@ -78,14 +84,61 @@ async function postCollectionWithRetry(
     } catch (err) {
       lastErr = err;
       const status = (err as { status?: number })?.status;
-      // 5xx = transiente Scryfall-Ausfaelle (kommen gelegentlich vor, siehe
-      // Heroku "Application Error"); 4xx sofort weiterwerfen, nicht retryen.
-      const retryable = !status || status >= 500;
-      if (!retryable || attempt === MAX_RETRIES - 1) throw err;
+      if (!isRetryableStatus(status) || attempt === MAX_RETRIES - 1) throw err;
       await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
     }
   }
   throw lastErr;
+}
+
+/**
+ * Fallback fuer den Fall, dass der Collection-Batch-Endpoint selbst
+ * (nicht nur einzelne Karten) laengere Zeit 5xx liefert - kam in der
+ * Praxis vor (Scryfall "Application Error" auf POST /cards/collection,
+ * waehrend GET-Endpoints normal liefen). Holt Karten einzeln per
+ * GET /cards/named nach, langsamer aber robuster.
+ */
+async function fetchNamedIndividually(
+  names: string[]
+): Promise<{ data: ScryfallCard[]; notFound: string[] }> {
+  const data: ScryfallCard[] = [];
+  const notFound: string[] = [];
+
+  for (const name of names) {
+    let lastErr: unknown;
+    let ok = false;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const res = await fetch(`${NAMED_URL}?exact=${encodeURIComponent(name)}`, {
+          headers: SCRYFALL_HEADERS,
+        });
+        if (res.status === 404) {
+          notFound.push(name);
+          ok = true;
+          break;
+        }
+        if (!res.ok) {
+          const err = new Error(`Scryfall ${res.status} bei /cards/named (${name})`) as Error & {
+            status?: number;
+          };
+          err.status = res.status;
+          throw err;
+        }
+        data.push((await res.json()) as ScryfallCard);
+        ok = true;
+        break;
+      } catch (err) {
+        lastErr = err;
+        const status = (err as { status?: number })?.status;
+        if (!isRetryableStatus(status) || attempt === MAX_RETRIES - 1) break;
+        await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+      }
+    }
+    if (!ok) throw lastErr;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+  }
+
+  return { data, notFound };
 }
 
 /**
@@ -103,14 +156,27 @@ export async function fetchScryfallCards(
 
   for (const batch of chunk(uniqueNames, BATCH_SIZE)) {
     const identifiers = batch.map((name) => ({ name }));
-    const data = await postCollectionWithRetry(identifiers);
 
-    for (const card of data.data) {
+    let cards: ScryfallCard[];
+    let batchNotFound: string[];
+    try {
+      const data = await postCollectionWithRetry(identifiers);
+      cards = data.data;
+      batchNotFound = data.not_found.map((nf) => nf.name).filter((n): n is string => !!n);
+    } catch (err) {
+      console.warn(
+        "[scryfall] Batch-Endpoint dauerhaft fehlgeschlagen, weiche auf Einzelabfragen aus:",
+        err instanceof Error ? err.message : err
+      );
+      const fallback = await fetchNamedIndividually(batch);
+      cards = fallback.data;
+      batchNotFound = fallback.notFound;
+    }
+
+    for (const card of cards) {
       found.set(card.name.toLowerCase(), card);
     }
-    for (const nf of data.not_found) {
-      if (nf.name) notFound.push(nf.name);
-    }
+    notFound.push(...batchNotFound);
 
     // Scryfall bittet um ~50-100ms zwischen Requests; Batch-Endpoint ist
     // laut SPEC unkritisch, aber ein kleiner Puffer schadet nicht.
