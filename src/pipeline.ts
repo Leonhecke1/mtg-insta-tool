@@ -9,7 +9,7 @@ import { generateTexts } from "./llm/anthropic";
 import { buildSlides } from "./render/slideBuilder";
 import { renderSlidesToFiles } from "./render/renderer";
 import { buildZip } from "./output/zip";
-import { GenerateResult, RawDeckList } from "./types";
+import { Deck, GenerateResult, GeneratedTexts, RawDeckList, SlideKind } from "./types";
 
 export interface PipelineInput {
   kind: "raw" | "moxfield" | "archidekt";
@@ -23,8 +23,44 @@ export interface PipelineOptions {
   useLlm: boolean;
 }
 
+export interface RenderedDeckTech {
+  jobDir: string;
+  slideFiles: string[];
+  slideKinds: SlideKind[];
+  captionFile: string;
+  caption: string;
+  zipFile: string;
+}
+
 function buildCaptionText(body: string, hashtags: string[]): string {
   return `${body}\n\n${hashtags.join(" ")}\n`;
+}
+
+/**
+ * Rendert Slides + caption.txt + ZIP aus einem bereits angereicherten Deck
+ * und fertigen Texten. Getrennt von runPipeline(), damit Text-Bearbeitung
+ * im Web-UI (siehe server.ts POST /api/jobs/:id/texts) nur neu rendern
+ * muss, ohne Parser/Scryfall/LLM erneut anzustossen.
+ */
+export async function renderDeckTech(
+  deck: Deck,
+  texts: GeneratedTexts,
+  jobId: string
+): Promise<RenderedDeckTech> {
+  const builtSlides = buildSlides(deck, texts);
+  const htmlSlides = builtSlides.map((s) => s.html);
+  const slideKinds = builtSlides.map((s) => s.kind);
+
+  const jobDir = path.join(config.outDir, jobId);
+  const slideFiles = await renderSlidesToFiles(htmlSlides, jobDir);
+
+  const caption = buildCaptionText(texts.caption.body, texts.caption.hashtags);
+  const captionFile = path.join(jobDir, "caption.txt");
+  fs.writeFileSync(captionFile, caption, "utf-8");
+
+  const zipFile = await buildZip(jobDir, [...slideFiles, captionFile]);
+
+  return { jobDir, slideFiles, slideKinds, captionFile, caption, zipFile };
 }
 
 /**
@@ -52,23 +88,10 @@ export async function runPipeline(
 
   const { deck, notFoundNames, usedFallbackNames } = await enrichDeck(raw);
   const texts = await generateTexts(deck, opts.useLlm);
-  const htmlSlides = buildSlides(deck, texts);
-
-  const jobDir = path.join(config.outDir, opts.jobId);
-  const slideFiles = await renderSlidesToFiles(htmlSlides, jobDir);
-
-  const caption = buildCaptionText(texts.caption.body, texts.caption.hashtags);
-  const captionFile = path.join(jobDir, "caption.txt");
-  fs.writeFileSync(captionFile, caption, "utf-8");
-
-  const zipFile = await buildZip(jobDir, [...slideFiles, captionFile]);
+  const rendered = await renderDeckTech(deck, texts, opts.jobId);
 
   return {
-    jobDir,
-    slideFiles,
-    captionFile,
-    caption,
-    zipFile,
+    ...rendered,
     deck,
     texts,
     notFoundNames,

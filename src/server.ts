@@ -2,9 +2,9 @@ import * as path from "path";
 import express, { NextFunction, Request, Response } from "express";
 import { nanoid } from "nanoid";
 import { config } from "./config";
-import { runPipeline } from "./pipeline";
+import { renderDeckTech, runPipeline } from "./pipeline";
 import { createJob, getJob, listJobs, updateJob } from "./jobs/jobStore";
-import { Job } from "./types";
+import { GeneratedTexts, Job } from "./types";
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
@@ -36,6 +36,7 @@ function toSummary(job: Job) {
     error: job.error,
     deckSummary: job.result?.deckSummary,
     slideUrls: job.result?.slideFiles.map((f) => `/out/${job.id}/${path.basename(f)}`),
+    slideKinds: job.result?.slideKinds,
     captionUrl: job.result ? `/out/${job.id}/caption.txt` : undefined,
     zipUrl: job.result ? `/out/${job.id}/${path.basename(job.result.zipFile)}` : undefined,
     usedFallbackNames: job.result?.usedFallbackNames ?? [],
@@ -49,7 +50,11 @@ app.get("/api/jobs", (_req, res) => {
 app.get("/api/jobs/:id", (req, res) => {
   const job = getJob(req.params.id);
   if (!job) return res.status(404).json({ error: "Job nicht gefunden" });
-  res.json({ ...toSummary(job), caption: job.result?.caption });
+  res.json({
+    ...toSummary(job),
+    caption: job.result?.caption,
+    texts: job.result?.texts,
+  });
 });
 
 app.post("/api/jobs", async (req, res) => {
@@ -88,12 +93,15 @@ app.post("/api/jobs", async (req, res) => {
       result: {
         jobDir: result.jobDir,
         slideFiles: result.slideFiles,
+        slideKinds: result.slideKinds,
         captionFile: result.captionFile,
         zipFile: result.zipFile,
         caption: result.caption,
         usedFallbackNames: result.usedFallbackNames,
+        deck: result.deck,
+        texts: result.texts,
         deckSummary: {
-          commander: result.deck.commander.name,
+          commander: result.deck.commanders.map((c) => c.name).join(" & "),
           cardCount: result.deck.cardCount,
           totalPriceEur: result.deck.totalPriceEur,
           colorIdentity: result.deck.colorIdentity,
@@ -106,6 +114,45 @@ app.post("/api/jobs", async (req, res) => {
     const message = err instanceof Error ? err.message : String(err);
     updateJob(jobId, { status: "failed", error: message });
     res.status(500).json({ error: message, jobId });
+  }
+});
+
+/**
+ * Eigene Texte hinterlegen (v.a. wenn kein LLM konfiguriert ist): Body
+ * enthaelt nur die zu aendernden Felder von GeneratedTexts (tagline,
+ * gameplan, caption), Rest bleibt wie zuletzt. Rendert danach
+ * Slides/Caption/ZIP neu, OHNE Parser/Scryfall/LLM erneut anzustossen.
+ */
+app.post("/api/jobs/:id/texts", async (req, res) => {
+  const job = getJob(req.params.id);
+  if (!job?.result) {
+    return res.status(404).json({ error: "Job (mit Ergebnis) nicht gefunden" });
+  }
+
+  const patch = req.body ?? {};
+  const merged: GeneratedTexts = {
+    tagline: typeof patch.tagline === "string" ? patch.tagline : job.result.texts.tagline,
+    gameplan: patch.gameplan ?? job.result.texts.gameplan,
+    caption: patch.caption ?? job.result.texts.caption,
+  };
+
+  try {
+    const rendered = await renderDeckTech(job.result.deck, merged, job.id);
+    updateJob(job.id, {
+      status: "ready",
+      result: {
+        ...job.result,
+        slideFiles: rendered.slideFiles,
+        slideKinds: rendered.slideKinds,
+        captionFile: rendered.captionFile,
+        zipFile: rendered.zipFile,
+        caption: rendered.caption,
+        texts: merged,
+      },
+    });
+    res.json({ ...toSummary(getJob(job.id)!), texts: merged });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

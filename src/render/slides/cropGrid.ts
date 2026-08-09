@@ -1,6 +1,6 @@
 import { ColorCode, EnrichedCard } from "../../types";
 import { buildSlideHtml } from "../layoutBase";
-import { colorPips, escapeHtml, floatingManaCircles } from "../components";
+import { colorPips, escapeHtml, floatingManaCircles, formatEur } from "../components";
 import { COLORS } from "../theme";
 
 const PAD_X = 64;
@@ -37,12 +37,18 @@ function pickColumns(count: number): number {
  * dass alles auf dem 1350px-Slide Platz findet; bei wenigen Karten wachsen
  * die Kacheln stattdessen bis zur vollen Karte, um die Flaeche auszunutzen.
  */
+export interface CropGridOptions {
+  /** Zeigt den Cardmarket-Preis als Badge unten rechts (z.B. Upgrades-Slide) */
+  showPrice?: boolean;
+}
+
 export function cropGridSlide(
   title: string,
   count: number,
   cards: EnrichedCard[],
   colorIdentity: ColorCode[],
-  seed: number
+  seed: number,
+  options: CropGridOptions = {}
 ): string {
   const circles = floatingManaCircles(colorIdentity, seed, 3);
 
@@ -97,6 +103,20 @@ export function cropGridSlide(
             ">${card.quantity}x</div>`
           : "";
 
+      const priceBadge =
+        options.showPrice && card.priceEur != null
+          ? `<div style="
+              position:absolute; bottom:8px; right:8px;
+              background:${COLORS.textPrimary};
+              color:#fff;
+              font-size:${nameFontSize}px;
+              font-weight:500;
+              padding: 2px 8px;
+              border-radius: 999px;
+              line-height:1.4;
+            ">${formatEur(card.priceEur)}</div>`
+          : "";
+
       return `
       <div style="
         position:relative;
@@ -107,6 +127,7 @@ export function cropGridSlide(
       ">
         ${artHtml}
         ${badge}
+        ${priceBadge}
       </div>`;
     })
     .join("\n");

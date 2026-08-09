@@ -1,9 +1,11 @@
 import { RawCardRef, RawDeckList } from "../types";
 
 const COMMANDER_LINE = /^\s*commander\s*:\s*(.+)$/i;
-const MAYBEBOARD_HEADER = /^\s*(maybeboard|maybe\s*board|considering)\s*:?\s*$/i;
+// "Sideboard" ist bei Commander-Decks meist der eigentliche Ort fuer
+// Upgrade-Kandidaten (echte Sideboards gibt es im Format nicht) - wird wie
+// "Maybeboard" behandelt und in denselben Pool gesammelt.
+const MAYBEBOARD_HEADER = /^\s*(maybeboard|maybe\s*board|considering|sideboard)\s*:?\s*$/i;
 const MAINBOARD_HEADER = /^\s*(mainboard|deck|main\s*deck)\s*:?\s*$/i;
-const SIDEBOARD_HEADER = /^\s*(sideboard)\s*:?\s*$/i;
 // "1 Sol Ring", "1x Sol Ring", "1 Sol Ring *CMDR*", "1 Sol Ring (C21) 253"
 const CARD_LINE = /^\s*(\d+)\s*x?\s+(.+?)\s*$/i;
 const CMDR_SUFFIX = /\s*\*?\bcmdr\b\*?\s*$/i;
@@ -33,17 +35,25 @@ function cleanCardName(raw: string): { name: string; isCommander: boolean } {
 /**
  * Parst eine Rohtext-Deckliste (siehe SPEC.md "Eingabe") in ein
  * RawDeckList-Modell. Toleriert deutsche/englische Section-Header,
- * "Commander:"-Zeile, optionale "x" nach der Anzahl und gaengige
- * Set-Code/Foil-Anhaenge aus Moxfield/Archidekt-Exporten.
+ * "Commander:"-Zeile (mehrfach fuer Partner/Background-Commander),
+ * "Sideboard"/"Maybeboard" als Synonyme fuer den Upgrade-Kandidaten-Pool,
+ * optionales "x" nach der Anzahl und gaengige Set-Code/Foil-Anhaenge aus
+ * Moxfield/Archidekt-Exporten.
  */
 export function parseRawDecklist(text: string): RawDeckList {
   const lines = text.split(/\r?\n/);
 
-  let commanderName: string | null = null;
+  const commanderNames: string[] = [];
   const mainboard: RawCardRef[] = [];
   const maybeboard: RawCardRef[] = [];
 
-  let section: "main" | "maybe" | "side" = "main";
+  const addCommander = (name: string) => {
+    if (!commanderNames.some((c) => c.toLowerCase() === name.toLowerCase())) {
+      commanderNames.push(name);
+    }
+  };
+
+  let section: "main" | "maybe" = "main";
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -51,7 +61,7 @@ export function parseRawDecklist(text: string): RawDeckList {
 
     const commanderMatch = line.match(COMMANDER_LINE);
     if (commanderMatch) {
-      commanderName = cleanCardName(commanderMatch[1]).name;
+      addCommander(cleanCardName(commanderMatch[1]).name);
       continue;
     }
 
@@ -61,10 +71,6 @@ export function parseRawDecklist(text: string): RawDeckList {
     }
     if (MAINBOARD_HEADER.test(line)) {
       section = "main";
-      continue;
-    }
-    if (SIDEBOARD_HEADER.test(line)) {
-      section = "side";
       continue;
     }
 
@@ -79,23 +85,26 @@ export function parseRawDecklist(text: string): RawDeckList {
     if (!name) continue;
 
     if (isCommander) {
-      commanderName = name;
+      addCommander(name);
       continue;
     }
 
     if (section === "maybe") {
       maybeboard.push({ name, quantity });
-    } else if (section === "main") {
+    } else {
       mainboard.push({ name, quantity });
     }
-    // "side" (Sideboard) wird fuer EDH-Deck-Techs nicht verwendet
   }
 
-  if (!commanderName) {
+  if (commanderNames.length === 0) {
     throw new Error(
-      'Kein Commander gefunden. Erwartet eine Zeile "Commander: <Name>" oder "*CMDR*"-Markierung.'
+      'Kein Commander gefunden. Erwartet eine Zeile "Commander: <Name>" (mehrfach bei Partner/Background) oder "*CMDR*"-Markierung.'
     );
   }
 
-  return { commander: { name: commanderName, quantity: 1 }, mainboard, maybeboard };
+  return {
+    commanders: commanderNames.map((name) => ({ name, quantity: 1 })),
+    mainboard,
+    maybeboard,
+  };
 }

@@ -61,7 +61,7 @@ function report(result: Awaited<ReturnType<typeof runPipeline>>) {
   console.log(`\nFertig: ${result.jobDir}`);
   console.log(`Slides: ${result.slideFiles.length}`);
   console.log(`ZIP: ${result.zipFile}`);
-  console.log(`Commander: ${result.deck.commander.name}`);
+  console.log(`Commander: ${result.deck.commanders.map((c) => c.name).join(" & ")}`);
   console.log(`Karten: ${result.deck.cardCount}, Preis: ${result.deck.totalPriceEur.toFixed(2)} EUR`);
   if (result.usedFallbackNames.length > 0) {
     console.warn(

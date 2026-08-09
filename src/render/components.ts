@@ -1,5 +1,10 @@
-import { ColorCode } from "../types";
+import { ColorCode, EnrichedCard } from "../types";
 import { MANA_CIRCLE_COLORS, SLIDE_HEIGHT, SLIDE_WIDTH } from "./theme";
+
+/** Zeigt 1 oder 2 (Partner/Background/Friends Forever) Commander-Namen gemeinsam an */
+export function commanderDisplayName(commanders: EnrichedCard[]): string {
+  return commanders.map((c) => c.name).join(" & ");
+}
 
 export interface CircleSpec {
   code: ColorCode;

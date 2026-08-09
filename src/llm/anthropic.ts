@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config, requireAnthropicConfigured } from "../config";
 import { Deck, GeneratedTexts } from "../types";
 import { colorComboName } from "../render/theme";
-import { formatEur } from "../render/components";
+import { commanderDisplayName, formatEur } from "../render/components";
 import { fallbackTexts } from "./fallback";
 
 const RESPONSE_SCHEMA_HINT = `Antworte AUSSCHLIESSLICH mit einem JSON-Objekt (kein Markdown, kein Fliesstext drumherum) in exakt dieser Form:
@@ -12,9 +12,6 @@ const RESPONSE_SCHEMA_HINT = `Antworte AUSSCHLIESSLICH mit einem JSON-Objekt (ke
     "paragraphs": ["Absatz 1", "Absatz 2", "Absatz 3 (optional)"],
     "steps": ["Schritt 1 (kurz)", "Schritt 2 (kurz)", "Schritt 3 (kurz)"]
   },
-  "upgrades": [
-    { "cardName": "Kartenname aus der Maybeboard-Liste", "oneLiner": "1 Satz: warum Upgrade + was es ersetzen koennte" }
-  ],
   "caption": {
     "body": "Instagram-Caption, 2-4 Saetze, ohne Hashtags",
     "hashtags": ["#edh", "#commander", "..."]
@@ -25,12 +22,14 @@ function buildPrompt(deck: Deck): string {
   const mainboardList = deck.mainboard
     .map((c) => `${c.quantity}x ${c.name} [${c.typeLine}]`)
     .join("\n");
-  const maybeboardList = deck.maybeboard.map((c) => `${c.name} [${c.typeLine}]`).join("\n");
+  const commanderLines = deck.commanders
+    .map((c) => `${c.name}${c.oracleText ? ` - ${c.oracleText}` : ""}`)
+    .join("\n");
 
   return `Du schreibst Inhalte fuer einen Instagram-Deck-Tech-Carousel-Post ueber ein Magic: The Gathering Commander-Deck. Zielgruppe: MTG-Commander-Spieler, Ton: locker-kompetent, kein Hype-Marketing-Sprech, keine Emojis im Fliesstext.
 
-Commander: ${deck.commander.name}
-Commander-Oracle-Text: ${deck.commander.oracleText || "(keiner)"}
+Commander${deck.commanders.length > 1 ? " (Partner/Background)" : ""}: ${commanderDisplayName(deck.commanders)}
+${commanderLines}
 Farbidentitaet: ${colorComboName(deck.colorIdentity)} (${deck.colorIdentity.join("") || "farblos"})
 Kartenanzahl: ${deck.cardCount}
 Gesamtpreis (Cardmarket-Trend): ${formatEur(deck.totalPriceEur)}
@@ -38,14 +37,10 @@ Gesamtpreis (Cardmarket-Trend): ${formatEur(deck.totalPriceEur)}
 Mainboard:
 ${mainboardList}
 
-Maybeboard (moegliche Upgrades):
-${maybeboardList || "(keine)"}
-
 Aufgaben:
 1. tagline: Ein pointierter Satz fuer die Cover-Slide, der die Strategie des Decks auf den Punkt bringt.
-2. gameplan: 2-3 Absaetze, die erklaeren was das Deck macht (Strategie, Schluesselsynergien, Wincondition), basierend auf Commander + Kartenliste. Danach eine 3-Schritte-Kurzzusammenfassung (z.B. "Rampen", "...", "...").
-3. upgrades: Fuer JEDE Karte in der Maybeboard-Liste einen Einzeiler: warum ist es ein Upgrade und was im Mainboard koennte es ersetzen. Genau ein Eintrag pro Maybeboard-Karte, cardName muss exakt dem Namen aus der Liste entsprechen.
-4. caption: Kurze Instagram-Caption (2-4 Saetze) + 8-15 relevante Hashtags (u.a. #edh #commander #mtg, plus deckspezifische wie Farbkombi/Commander-Name/Archetyp).
+2. gameplan: 2-3 Absaetze, die erklaeren was das Deck macht (Strategie, Schluesselsynergien, Wincondition), basierend auf Commander(n) + Kartenliste. Danach eine 3-Schritte-Kurzzusammenfassung (z.B. "Rampen", "...", "...").
+3. caption: Kurze Instagram-Caption (2-4 Saetze) + 8-15 relevante Hashtags (u.a. #edh #commander #mtg, plus deckspezifische wie Farbkombi/Commander-Name/Archetyp).
 
 ${RESPONSE_SCHEMA_HINT}`;
 }
@@ -66,12 +61,6 @@ function validateAndNormalize(parsed: any): GeneratedTexts {
     : [];
   const steps = Array.isArray(parsed?.gameplan?.steps) ? parsed.gameplan.steps : [];
 
-  const upgrades = Array.isArray(parsed?.upgrades)
-    ? parsed.upgrades
-        .filter((u: any) => typeof u?.cardName === "string" && typeof u?.oneLiner === "string")
-        .map((u: any) => ({ cardName: u.cardName, oneLiner: u.oneLiner }))
-    : [];
-
   const hashtags = Array.isArray(parsed?.caption?.hashtags)
     ? parsed.caption.hashtags.filter((h: unknown) => typeof h === "string")
     : [];
@@ -86,7 +75,6 @@ function validateAndNormalize(parsed: any): GeneratedTexts {
       paragraphs,
       steps: [steps[0] ?? "", steps[1] ?? "", steps[2] ?? ""],
     },
-    upgrades,
     caption: {
       body: parsed.caption.body,
       hashtags: hashtags.length > 0 ? hashtags : ["#edh", "#commander", "#mtg"],
@@ -95,10 +83,10 @@ function validateAndNormalize(parsed: any): GeneratedTexts {
 }
 
 /**
- * Generiert alle Texte (Tagline, Gameplan, Upgrade-Einzeiler, Caption)
- * in einem einzigen Claude-Call. Faellt bei fehlendem API-Key oder Fehlern
- * auf regelbasierte Platzhaeltertexte zurueck (siehe llm/fallback.ts) -
- * so bleibt der Preview/Dry-Run-Modus ohne LLM-Kosten nutzbar.
+ * Generiert alle Texte (Tagline, Gameplan, Caption) in einem einzigen
+ * Claude-Call. Faellt bei fehlendem API-Key oder Fehlern auf
+ * regelbasierte Platzhaeltertexte zurueck (siehe llm/fallback.ts) - so
+ * bleibt der Preview-Modus ohne LLM-Kosten nutzbar.
  */
 export async function generateTexts(deck: Deck, useLlm: boolean): Promise<GeneratedTexts> {
   if (!useLlm || !config.anthropicApiKey) {

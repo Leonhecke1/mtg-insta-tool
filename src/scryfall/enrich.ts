@@ -96,15 +96,16 @@ function resolveRefs(
  * Karte auf die von Moxfield/Archidekt mitgelieferten Fallback-Daten
  * zurueckgegriffen (siehe parser/moxfield.ts, parser/archidekt.ts) -
  * bei Rohtext-Importen gibt es keinen Fallback, dort ist Scryfall Pflicht.
- * Wirft nur, wenn der Commander selbst weder ueber Scryfall noch Fallback
- * aufloesbar ist; einzelne nicht aufloesbare Mainboard/Maybeboard-Karten
- * werden uebersprungen und in notFoundNames gesammelt.
+ * Wirft nur, wenn KEIN Commander aufloesbar ist (1 oder 2 - Partner/
+ * Background/Friends Forever); einzelne nicht aufloesbare
+ * Mainboard/Maybeboard-Karten oder ein einzelner nicht aufloesbarer
+ * Partner-Commander werden uebersprungen und in notFoundNames gesammelt.
  */
 export async function enrichDeck(
   raw: RawDeckList
 ): Promise<{ deck: Deck; notFoundNames: string[]; usedFallbackNames: string[] }> {
   const allNames = [
-    raw.commander.name,
+    ...raw.commanders.map((c) => c.name),
     ...raw.mainboard.map((c) => c.name),
     ...raw.maybeboard.map((c) => c.name),
   ];
@@ -122,31 +123,35 @@ export async function enrichDeck(
   const notFoundNames: string[] = [];
   const usedFallbackNames: string[] = [];
 
-  const commander = resolveRef(raw.commander, found, notFoundNames, usedFallbackNames);
-  if (!commander) {
+  const commanders = resolveRefs(raw.commanders, found, notFoundNames, usedFallbackNames);
+  if (commanders.length === 0) {
+    const names = raw.commanders.map((c) => `"${c.name}"`).join(", ");
     throw new Error(
-      `Commander "${raw.commander.name}" wurde bei Scryfall nicht gefunden und es liegen keine Fallback-Daten vor. Namen pruefen (Sonderzeichen wie "Jötun"?).`
+      `Commander (${names}) wurden bei Scryfall nicht gefunden und es liegen keine Fallback-Daten vor. Namen pruefen (Sonderzeichen wie "Jötun"?).`
     );
   }
 
   const mainboard = resolveRefs(raw.mainboard, found, notFoundNames, usedFallbackNames);
   const maybeboard = resolveRefs(raw.maybeboard, found, notFoundNames, usedFallbackNames);
 
-  const colorIdentitySet = new Set<ColorCode>(commander.colorIdentity);
+  const colorIdentitySet = new Set<ColorCode>();
+  for (const c of commanders) {
+    for (const col of c.colorIdentity) colorIdentitySet.add(col);
+  }
   for (const c of mainboard) {
     for (const col of c.colorIdentity) colorIdentitySet.add(col);
   }
   const colorIdentity = COLOR_ORDER.filter((c) => colorIdentitySet.has(c));
 
   const cardCount =
-    1 + mainboard.reduce((sum, c) => sum + c.quantity, 0);
+    commanders.length + mainboard.reduce((sum, c) => sum + c.quantity, 0);
 
   const totalPriceEur =
-    (commander.priceEur ?? 0) +
+    commanders.reduce((sum, c) => sum + (c.priceEur ?? 0), 0) +
     mainboard.reduce((sum, c) => sum + (c.priceEur ?? 0) * c.quantity, 0);
 
   const deck: Deck = {
-    commander,
+    commanders,
     mainboard,
     maybeboard,
     colorIdentity,

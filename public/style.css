@@ -95,6 +95,19 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 }
 .job-header { display: flex; align-items: center; gap: 8px; }
 .job-id { color: #9A8F7A; font-size: 12px; font-family: monospace; }
+.collapse-toggle {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: #7A7263;
+  padding: 2px 4px;
+  line-height: 1;
+}
+.deck-line-inline { display: none; font-size: 13px; color: #7A7263; }
+.job-card.collapsed { padding-bottom: 10px; }
+.job-card.collapsed .job-body { display: none; }
+.job-card.collapsed .deck-line-inline { display: inline; }
 .badge {
   display: inline-block;
   font-size: 12px;
@@ -113,9 +126,15 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 
 .slides { display: flex; gap: 6px; overflow-x: auto; margin-top: 10px; }
 .slides img { height: 120px; border-radius: 6px; border: 1px solid #E4DCC9; }
+.slides img.editable {
+  cursor: pointer;
+  border-color: #1F1D18;
+  box-shadow: 0 0 0 2px rgba(31, 29, 24, 0.08);
+}
+.slides img.editable:hover { box-shadow: 0 0 0 2px #1F1D18; }
 
 .actions { margin-top: 10px; display: flex; gap: 8px; align-items: center; }
-.actions a {
+.actions a, .actions button {
   border: 1px solid #E4DCC9;
   background: #F4EFE4;
   border-radius: 6px;
@@ -123,6 +142,8 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
   font-size: 13px;
   text-decoration: none;
   color: #1F1D18;
+  cursor: pointer;
+  font-family: inherit;
 }
 .actions a.zip-link {
   background: #1F1D18;
@@ -130,3 +151,38 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
   border-color: #1F1D18;
   font-weight: 500;
 }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 29, 24, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 50;
+}
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  width: min(560px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.modal h3 { margin: 0 0 16px; font-weight: 500; }
+.modal-body { display: flex; flex-direction: column; gap: 14px; }
+.modal-body label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.modal-actions button {
+  border: 1px solid #E4DCC9;
+  background: #F4EFE4;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.modal-actions button.primary { background: #1F1D18; color: #fff; border-color: #1F1D18; }
+.modal-actions button:disabled { opacity: 0.5; cursor: default; }
+#modal-status { color: #7A7263; font-size: 13px; margin-top: 10px; }

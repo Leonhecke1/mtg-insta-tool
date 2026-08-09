@@ -121,7 +121,11 @@ export async function fetchArchidektDeck(urlOrId: string): Promise<RawDeckList> 
     );
   }
 
-  let commander: RawCardRef | undefined;
+  // commanders: 2 Eintraege bei Partner/Background/Friends Forever.
+  // "Sideboard" wird wie "Maybeboard" behandelt - bei Commander-Decks gibt
+  // es kein echtes Sideboard, beide Kategorien sind auf verschiedenen
+  // Seiten/bei verschiedenen Nutzern die Ablage fuer Upgrade-Kandidaten.
+  const commanders: RawCardRef[] = [];
   const mainboard: RawCardRef[] = [];
   const maybeboard: RawCardRef[] = [];
 
@@ -133,24 +137,25 @@ export async function fetchArchidektDeck(urlOrId: string): Promise<RawDeckList> 
     const fallback = buildFallback(entry.card);
 
     if (categories.includes("commander")) {
-      commander = { name, quantity: 1, fallback };
+      commanders.push({ name, quantity: 1, fallback });
       continue;
     }
-    if (categories.includes("sideboard")) {
-      continue; // wie bei Moxfield: fuer EDH-Deck-Techs nicht relevant
-    }
-    if (categories.includes("maybeboard") || categories.includes("maybe board")) {
+    if (
+      categories.includes("sideboard") ||
+      categories.includes("maybeboard") ||
+      categories.includes("maybe board")
+    ) {
       maybeboard.push({ name, quantity, fallback });
       continue;
     }
     mainboard.push({ name, quantity, fallback });
   }
 
-  if (!commander) {
+  if (commanders.length === 0) {
     throw new Error(
       'Konnte keinen Commander im Archidekt-Deck finden - erwartet eine Karte mit Kategorie "Commander"'
     );
   }
 
-  return { commander, mainboard, maybeboard };
+  return { commanders, mainboard, maybeboard };
 }

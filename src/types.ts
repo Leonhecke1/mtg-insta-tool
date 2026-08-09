@@ -21,7 +21,8 @@ export interface RawCardRef {
 }
 
 export interface RawDeckList {
-  commander: RawCardRef;
+  // 1 Eintrag normal, 2 bei Partner/Background/Friends-Forever-Commandern
+  commanders: RawCardRef[];
   mainboard: RawCardRef[];
   maybeboard: RawCardRef[];
 }
@@ -40,7 +41,8 @@ export interface EnrichedCard {
 }
 
 export interface Deck {
-  commander: EnrichedCard;
+  // 1 Eintrag normal, 2 bei Partner/Background/Friends-Forever-Commandern
+  commanders: EnrichedCard[];
   mainboard: EnrichedCard[];
   maybeboard: EnrichedCard[];
   colorIdentity: ColorCode[];
@@ -53,11 +55,6 @@ export interface GameplanText {
   steps: [string, string, string];
 }
 
-export interface UpgradeNote {
-  cardName: string;
-  oneLiner: string;
-}
-
 export interface CaptionText {
   body: string;
   hashtags: string[];
@@ -66,7 +63,6 @@ export interface CaptionText {
 export interface GeneratedTexts {
   tagline: string;
   gameplan: GameplanText;
-  upgrades: UpgradeNote[];
   caption: CaptionText;
 }
 
@@ -75,9 +71,21 @@ export interface GenerateSettings {
   useLlm: boolean;
 }
 
+export type SlideKind =
+  | "cover"
+  | "creatures"
+  | "instants"
+  | "sorceries"
+  | "artifacts"
+  | "lands"
+  | "gameplan"
+  | "price"
+  | "upgrades";
+
 export interface GenerateResult {
   jobDir: string;
   slideFiles: string[];
+  slideKinds: SlideKind[];
   captionFile: string;
   caption: string;
   zipFile: string;
@@ -102,10 +110,14 @@ export interface Job {
   result?: {
     jobDir: string;
     slideFiles: string[];
+    slideKinds: SlideKind[];
     captionFile: string;
     zipFile: string;
     caption?: string;
     usedFallbackNames: string[];
+    // Fuer Nachrender bei Text-Bearbeitung (siehe pipeline.ts rerenderDeckTech)
+    deck: Deck;
+    texts: GeneratedTexts;
     deckSummary?: {
       commander: string;
       cardCount: number;

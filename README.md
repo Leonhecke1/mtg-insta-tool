@@ -34,11 +34,29 @@ npm run generate -- --archidekt https://archidekt.com/decks/xxxxxxx/deck-name
 npm run generate -- ./meine-deckliste.txt --llm   # mit echten Anthropic-Texten statt Platzhaltern
 ```
 
-LLM-Texte (Gameplan/Upgrades/Caption) sind standardmaessig AUS - ohne
+LLM-Texte (Tagline/Gameplan/Caption) sind standardmaessig AUS - ohne
 `--llm` (bzw. im Web-UI ohne die Checkbox) werden Platzhaltertexte genutzt,
 kein Anthropic-API-Aufruf noetig. Anthropics API wird separat vom
 claude.ai/Claude-Code-Zugang abgerechnet (eigenes Guthaben noetig) - wer
-das nicht will, laesst die LLM-Option einfach aus.
+das nicht will, laesst die LLM-Option einfach aus **und/oder bearbeitet die
+Platzhaltertexte selbst**: im Web-UI auf die Cover- oder Gameplan-Slide
+klicken (bearbeitbare Slides sind umrandet), Text anpassen, speichern -
+rendert automatisch neu, ohne erneuten Scryfall/LLM-Aufruf.
+
+## Commander, Sideboard/Maybeboard, Upgrades
+
+- **Partner/Background/Friends-Forever-Commander** (2 Commander) werden
+  unterstuetzt: bei Rohtext zwei "Commander:"-Zeilen (oder zwei
+  `*CMDR*`-Markierungen), bei Moxfield/Archidekt automatisch aus
+  `boards.commanders` bzw. Kategorie "Commander" (kann mehr als 1 Eintrag
+  haben).
+- **Upgrade-Kandidaten** kommen aus "Sideboard" ODER "Maybeboard" (beide
+  Begriffe/Boards werden zusammengelegt) - Commander hat kein echtes
+  Sideboard, viele Deckbuilder nutzen den Slot trotzdem fuer
+  Upgrade-Wunschlisten.
+- Die **Upgrades-Slide** zeigt ALLE Sideboard/Maybeboard-Karten als
+  kompaktes Bild-Grid mit Preis-Badge (keine Deckelung mehr auf 5 Karten,
+  dafuer kein Freitext pro Karte mehr).
 
 Ergebnis liegt danach in `out/<jobId>/`: `slide-01.png` ... , `caption.txt`
 und `deck-tech.zip` (enthaelt beides).

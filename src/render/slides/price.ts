@@ -50,20 +50,34 @@ export function priceSlide(deck: Deck): string {
 
       <div style="
         margin-top: 24px;
-        display:flex; align-items:center; justify-content:space-between;
         background:${COLORS.cardWhite};
         border-radius:16px;
-        padding: 22px 32px;
+        padding: 6px 32px;
       ">
-        <div style="font-size:24px; color:${COLORS.textSecondary};">Commander: ${escapeHtml(
-    deck.commander.name
-  )}</div>
-        <div style="font-size:26px; font-weight:500; color:${COLORS.textPrimary};">${formatEur(
-    deck.commander.priceEur
-  )}</div>
+        ${commanderRows(deck)}
       </div>
     </div>
   `;
 
   return buildSlideHtml(content, { circles });
+}
+
+function commanderRows(deck: Deck): string {
+  return deck.commanders
+    .map(
+      (c, i) => `
+      <div style="
+        display:flex; align-items:center; justify-content:space-between;
+        padding: 16px 0;
+        ${i > 0 ? `border-top: 1px solid ${COLORS.background};` : ""}
+      ">
+        <div style="font-size:24px; color:${COLORS.textSecondary};">Commander: ${escapeHtml(
+        c.name
+      )}</div>
+        <div style="font-size:26px; font-weight:500; color:${COLORS.textPrimary};">${formatEur(
+        c.priceEur
+      )}</div>
+      </div>`
+    )
+    .join("\n");
 }

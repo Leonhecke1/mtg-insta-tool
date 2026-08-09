@@ -105,12 +105,15 @@ export async function fetchMoxfieldDeck(urlOrId: string): Promise<RawDeckList> {
 
   const boards = (data.boards ?? data) as Record<string, unknown>;
 
+  // commanderEntries kann 2 Eintraege haben (Partner/Background/Friends
+  // Forever). Maybeboard + Sideboard werden zusammengelegt - bei
+  // Commander-Decks landen Upgrade-Kandidaten je nach Nutzer in dem einen
+  // oder anderen "Board".
   const commanderEntries = entriesFromBoard(boards.commanders);
   const mainEntries = entriesFromBoard(boards.mainboard);
-  const maybeEntries = entriesFromBoard(boards.maybeboard);
+  const maybeEntries = [...entriesFromBoard(boards.maybeboard), ...entriesFromBoard(boards.sideboard)];
 
-  const commanderEntry = commanderEntries[0];
-  if (!commanderEntry?.card?.name) {
+  if (commanderEntries.length === 0) {
     throw new Error(
       "Konnte keinen Commander im Moxfield-Deck finden - Response-Format hat sich moeglicherweise geaendert (boards.commanders)"
     );
@@ -123,11 +126,11 @@ export async function fetchMoxfieldDeck(urlOrId: string): Promise<RawDeckList> {
   }
 
   return {
-    commander: {
-      name: commanderEntry.card.name,
+    commanders: commanderEntries.map((e) => ({
+      name: e.card!.name as string,
       quantity: 1,
-      fallback: buildFallback(commanderEntry.card),
-    },
+      fallback: buildFallback(e.card!),
+    })),
     mainboard: toRawRefs(mainEntries),
     maybeboard: toRawRefs(maybeEntries),
   };

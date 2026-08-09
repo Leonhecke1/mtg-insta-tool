@@ -47,7 +47,9 @@
       "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\.claude\\\\jobs\\\\97810ed5\\\\tmp\\\\img-test.js\")",
       "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\.claude\\\\jobs\\\\97810ed5\\\\tmp\\\\img-test2.js\")",
       "Bash(env)",
-      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx ts-node src/cli.ts generate --archidekt https://archidekt.com/decks/25118989/moonfall)"
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx ts-node src/cli.ts generate --archidekt https://archidekt.com/decks/25118989/moonfall)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\.claude\\\\jobs\\\\97810ed5\\\\tmp\\\\api-test2.js\")",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx ts-node src/cli.ts generate \"C:\\\\Users\\\\leonh\\\\.claude\\\\jobs\\\\97810ed5\\\\tmp\\\\partner-decklist.txt\")"
     ]
   }
 }
