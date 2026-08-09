@@ -60,8 +60,13 @@ function report(result: Awaited<ReturnType<typeof runPipeline>>) {
   console.log(`ZIP: ${result.zipFile}`);
   console.log(`Commander: ${result.deck.commander.name}`);
   console.log(`Karten: ${result.deck.cardCount}, Preis: ${result.deck.totalPriceEur.toFixed(2)} EUR`);
+  if (result.usedFallbackNames.length > 0) {
+    console.warn(
+      `Scryfall nicht verfuegbar, Moxfield/Archidekt-Fallback-Daten genutzt fuer: ${result.usedFallbackNames.join(", ")}`
+    );
+  }
   if (result.notFoundNames.length > 0) {
-    console.warn(`Nicht gefunden bei Scryfall: ${result.notFoundNames.join(", ")}`);
+    console.warn(`Nicht gefunden (weder Scryfall noch Fallback): ${result.notFoundNames.join(", ")}`);
   }
 }
 

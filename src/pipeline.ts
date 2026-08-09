@@ -50,7 +50,7 @@ export async function runPipeline(
     raw = parseRawDecklist(input.raw);
   }
 
-  const { deck, notFoundNames } = await enrichDeck(raw);
+  const { deck, notFoundNames, usedFallbackNames } = await enrichDeck(raw);
   const texts = await generateTexts(deck, opts.useLlm);
   const htmlSlides = buildSlides(deck, texts);
 
@@ -72,5 +72,6 @@ export async function runPipeline(
     deck,
     texts,
     notFoundNames,
+    usedFallbackNames,
   };
 }

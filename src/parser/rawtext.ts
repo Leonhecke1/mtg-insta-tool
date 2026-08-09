@@ -97,5 +97,5 @@ export function parseRawDecklist(text: string): RawDeckList {
     );
   }
 
-  return { commanderName, mainboard, maybeboard };
+  return { commander: { name: commanderName, quantity: 1 }, mainboard, maybeboard };
 }

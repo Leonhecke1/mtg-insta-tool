@@ -37,7 +37,15 @@
       "Bash(rm -f \"/c/Users/leonh/Desktop/Projekte/mtg-insta-tool.zip\")",
       "Bash(zip -r -q /c/Users/leonh/Desktop/Projekte/mtg-insta-tool.zip . -x node_modules/* -x dist/* -x out/* -x data/* -x .git/* -x .env -x .claude/*)",
       "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx ts-node src/cli.ts generate \"C:\\\\Users\\\\leonh\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-leonh-Desktop-Projekte-mtg-insta-tool\\\\97810ed5-a289-42d6-91d0-6fdf1cc0cf54\\\\tmp\\\\decklist.txt\" --no-llm)",
-      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx ts-node zip-smoke-test.ts)"
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx ts-node zip-smoke-test.ts)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\.claude\\\\jobs\\\\97810ed5\\\\tmp\\\\archidekt-fields.js\")",
+      "WebFetch(domain:www.moxfield.com)",
+      "WebFetch(domain:www.google.com)",
+      "WebSearch",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\.claude\\\\jobs\\\\97810ed5\\\\tmp\\\\moxfield-test.js\")",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\.claude\\\\jobs\\\\97810ed5\\\\tmp\\\\moxfield-test2.js\")",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\.claude\\\\jobs\\\\97810ed5\\\\tmp\\\\img-test.js\")",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\.claude\\\\jobs\\\\97810ed5\\\\tmp\\\\img-test2.js\")"
     ]
   }
 }

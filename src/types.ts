@@ -1,12 +1,27 @@
 export type ColorCode = "W" | "U" | "B" | "R" | "G";
 
+/**
+ * Von Moxfield/Archidekt bereits mitgelieferte Kartendaten. Wird genutzt,
+ * wenn Scryfall eine Karte nicht liefern kann (Ausfall oder Name nicht
+ * gefunden) - siehe scryfall/enrich.ts.
+ */
+export interface CardFallbackData {
+  manaCost: string;
+  typeLine: string;
+  oracleText: string;
+  colorIdentity: ColorCode[];
+  imageNormal: string | null;
+  priceEur: number | null;
+}
+
 export interface RawCardRef {
   name: string;
   quantity: number;
+  fallback?: CardFallbackData;
 }
 
 export interface RawDeckList {
-  commanderName: string;
+  commander: RawCardRef;
   mainboard: RawCardRef[];
   maybeboard: RawCardRef[];
 }
@@ -69,6 +84,7 @@ export interface GenerateResult {
   deck: Deck;
   texts: GeneratedTexts;
   notFoundNames: string[];
+  usedFallbackNames: string[];
 }
 
 export type JobStatus = "generating" | "ready" | "failed";
@@ -89,6 +105,7 @@ export interface Job {
     captionFile: string;
     zipFile: string;
     caption?: string;
+    usedFallbackNames: string[];
     deckSummary?: {
       commander: string;
       cardCount: number;

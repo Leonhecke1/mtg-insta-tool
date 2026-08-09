@@ -111,9 +111,23 @@ TCGplayer) liefern keine verlaesslichen EUR/Cardmarket-Preise - Scryfall
 bleibt die einzig praktikable Quelle.
 
 Der Batch-Endpoint (`POST /cards/collection`) hat in der Praxis
-gelegentlich 503/Cloudflare-Aussetzer gezeigt. `src/scryfall/client.ts`
-retried automatisch und weicht bei dauerhaftem Ausfall auf einzelne
-`GET /cards/named`-Abfragen pro Karte aus (langsamer, aber robuster).
+gelegentlich 503/429/Wartungsfenster-Aussetzer gezeigt. `src/scryfall/client.ts`
+retried automatisch (inkl. 429) und weicht bei dauerhaftem Ausfall auf
+einzelne `GET /cards/named`-Abfragen pro Karte aus (langsamer, aber
+robuster).
+
+**Fallback bei Moxfield-/Archidekt-Import:** Beide Plattformen liefern in
+ihrer Deck-JSON bereits fast alles, was sonst von Scryfall kommt - Moxfield
+spiegelt Scryfalls Schema fast 1:1 (inkl. `prices.eur`), Archidekt liefert
+Cardmarket-Preis (`prices.cm`), Oracle-Text/Typen/Farbidentitaet sowie eine
+Scryfall-Card-UUID, aus der sich die Bild-URL direkt auf
+`cards.scryfall.io` (separate, statische Asset-Infrastruktur - blieb in der
+Praxis auch waehrend eines Scryfall-API-Wartungsfensters erreichbar) ohne
+API-Aufruf konstruieren laesst. Wenn Scryfall eine Karte nicht liefern kann
+(einzeln nicht gefunden oder API komplett down), nutzt `scryfall/enrich.ts`
+automatisch diese mitgelieferten Daten als Fallback. Bei Rohtext-Importen
+gibt es keinen Fallback - dort ist Scryfall zwingend erforderlich, da es
+die einzige Datenquelle ist.
 
 ## Bekannte Einschraenkungen / offene Punkte
 

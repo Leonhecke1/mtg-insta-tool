@@ -38,6 +38,7 @@ function toSummary(job: Job) {
     slideUrls: job.result?.slideFiles.map((f) => `/out/${job.id}/${path.basename(f)}`),
     captionUrl: job.result ? `/out/${job.id}/caption.txt` : undefined,
     zipUrl: job.result ? `/out/${job.id}/${path.basename(job.result.zipFile)}` : undefined,
+    usedFallbackNames: job.result?.usedFallbackNames ?? [],
   };
 }
 
@@ -90,6 +91,7 @@ app.post("/api/jobs", async (req, res) => {
         captionFile: result.captionFile,
         zipFile: result.zipFile,
         caption: result.caption,
+        usedFallbackNames: result.usedFallbackNames,
         deckSummary: {
           commander: result.deck.commander.name,
           cardCount: result.deck.cardCount,

@@ -64,7 +64,7 @@ export function renderManaCircles(circles: CircleSpec[]): string {
 }
 
 export function handleSignature(): string {
-  return `<div class="handle-signature">floating._.mana</div>`;
+  return `<div class="handle-signature">floating_mana</div>`;
 }
 
 export function colorPips(colorIdentity: ColorCode[]): string {

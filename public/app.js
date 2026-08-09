@@ -70,6 +70,11 @@ function jobCard(job) {
     ? `${job.deckSummary.commander} &middot; ${job.deckSummary.cardCount} Karten &middot; ${job.deckSummary.colorIdentity.join("")}`
     : "";
 
+  const fallbackNote =
+    job.usedFallbackNames && job.usedFallbackNames.length > 0
+      ? `<div class="fallback-note">Scryfall war fuer ${job.usedFallbackNames.length} Karte(n) nicht erreichbar - Moxfield/Archidekt-Daten als Fallback genutzt.</div>`
+      : "";
+
   const actions = [];
   if (job.zipUrl) {
     actions.push(`<a class="zip-link" href="${job.zipUrl}" download>ZIP herunterladen</a>`);
@@ -84,6 +89,7 @@ function jobCard(job) {
       <span class="job-id">${job.id}</span>
     </div>
     <div class="deck-line">${deck}</div>
+    ${fallbackNote}
     ${job.error ? `<div class="error-line">${job.error}</div>` : ""}
     <div class="slides">${slides}</div>
     <div class="actions">${actions.join(" ")}</div>

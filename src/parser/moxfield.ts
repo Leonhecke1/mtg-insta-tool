@@ -1,31 +1,39 @@
-import { RawCardRef, RawDeckList } from "../types";
+import { CardFallbackData, ColorCode, RawCardRef, RawDeckList } from "../types";
+import { scryfallCdnImageUrl } from "../scryfall/client";
 
 /**
  * Moxfields API ist inoffiziell/undokumentiert und hat sich in der
  * Vergangenheit mehrfach geaendert (v1 -> v2 -> v3, "boards"-Wrapper kam
  * spaeter dazu). Diese Funktion versucht mehrere bekannte Response-Formen,
  * bevor sie aufgibt. Falls Moxfield das Format erneut aendert: hier ansetzen.
+ *
+ * Moxfields eingebettetes Karten-Objekt spiegelt Scryfalls eigenes Schema
+ * fast 1:1 (type_line, oracle_text, mana_cost, color_identity als
+ * Buchstaben-Codes, prices.eur, scryfall_id) - verifiziert gegen eine
+ * echte Deck-Response. Diese Daten werden als Fallback mitgegeben, falls
+ * Scryfalls eigene API mal nicht antwortet (siehe scryfall/enrich.ts).
  */
+
+interface MoxfieldCardFace {
+  mana_cost?: string;
+  type_line?: string;
+  oracle_text?: string;
+}
+
+interface MoxfieldCard {
+  name?: string;
+  type_line?: string;
+  oracle_text?: string;
+  mana_cost?: string;
+  color_identity?: string[];
+  scryfall_id?: string;
+  prices?: { eur?: number | null };
+  card_faces?: MoxfieldCardFace[];
+}
 
 interface MoxfieldCardEntry {
   quantity?: number;
-  card?: { name?: string };
-}
-
-type MoxfieldBoard = Record<string, MoxfieldCardEntry> | { cards?: Record<string, MoxfieldCardEntry> };
-
-export function extractPublicId(input: string): string {
-  const trimmed = input.trim();
-  // Bereits eine nackte publicId (keine URL-Zeichen)
-  if (!/^https?:\/\//i.test(trimmed) && !trimmed.includes("/")) {
-    return trimmed;
-  }
-  // https://www.moxfield.com/decks/{publicId}  oder  https://api.moxfield.com/v3/decks/all/{publicId}
-  const match = trimmed.match(/decks\/(?:all\/)?([A-Za-z0-9_-]+)\/?$/);
-  if (!match) {
-    throw new Error(`Konnte Moxfield-publicId nicht aus "${input}" extrahieren`);
-  }
-  return match[1];
+  card?: MoxfieldCard;
 }
 
 function entriesFromBoard(board: unknown): MoxfieldCardEntry[] {
@@ -40,10 +48,40 @@ function entriesFromBoard(board: unknown): MoxfieldCardEntry[] {
   );
 }
 
+function buildFallback(card: MoxfieldCard): CardFallbackData {
+  const face = card.card_faces?.[0];
+  return {
+    manaCost: card.mana_cost || face?.mana_cost || "",
+    typeLine: card.type_line || face?.type_line || "",
+    oracleText: card.oracle_text || face?.oracle_text || "",
+    colorIdentity: (card.color_identity ?? []) as ColorCode[],
+    imageNormal: card.scryfall_id ? scryfallCdnImageUrl(card.scryfall_id) : null,
+    priceEur: card.prices?.eur ?? null,
+  };
+}
+
 function toRawRefs(entries: MoxfieldCardEntry[]): RawCardRef[] {
   return entries
     .filter((e) => !!e.card?.name)
-    .map((e) => ({ name: e.card!.name as string, quantity: e.quantity ?? 1 }));
+    .map((e) => ({
+      name: e.card!.name as string,
+      quantity: e.quantity ?? 1,
+      fallback: buildFallback(e.card!),
+    }));
+}
+
+export function extractPublicId(input: string): string {
+  const trimmed = input.trim();
+  // Bereits eine nackte publicId (keine URL-Zeichen)
+  if (!/^https?:\/\//i.test(trimmed) && !trimmed.includes("/")) {
+    return trimmed;
+  }
+  // https://www.moxfield.com/decks/{publicId}  oder  https://api.moxfield.com/v3/decks/all/{publicId}
+  const match = trimmed.match(/decks\/(?:all\/)?([A-Za-z0-9_-]+)\/?$/);
+  if (!match) {
+    throw new Error(`Konnte Moxfield-publicId nicht aus "${input}" extrahieren`);
+  }
+  return match[1];
 }
 
 export async function fetchMoxfieldDeck(urlOrId: string): Promise<RawDeckList> {
@@ -71,8 +109,8 @@ export async function fetchMoxfieldDeck(urlOrId: string): Promise<RawDeckList> {
   const mainEntries = entriesFromBoard(boards.mainboard);
   const maybeEntries = entriesFromBoard(boards.maybeboard);
 
-  const commanderName = commanderEntries[0]?.card?.name;
-  if (!commanderName) {
+  const commanderEntry = commanderEntries[0];
+  if (!commanderEntry?.card?.name) {
     throw new Error(
       "Konnte keinen Commander im Moxfield-Deck finden - Response-Format hat sich moeglicherweise geaendert (boards.commanders)"
     );
@@ -85,7 +123,11 @@ export async function fetchMoxfieldDeck(urlOrId: string): Promise<RawDeckList> {
   }
 
   return {
-    commanderName,
+    commander: {
+      name: commanderEntry.card.name,
+      quantity: 1,
+      fallback: buildFallback(commanderEntry.card),
+    },
     mainboard: toRawRefs(mainEntries),
     maybeboard: toRawRefs(maybeEntries),
   };

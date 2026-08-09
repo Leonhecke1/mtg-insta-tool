@@ -109,6 +109,7 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 
 .deck-line { margin-top: 8px; font-size: 14px; }
 .error-line { color: #b23b3b; font-size: 13px; margin-top: 6px; }
+.fallback-note { color: #9A8F7A; font-size: 12px; margin-top: 6px; }
 
 .slides { display: flex; gap: 6px; overflow-x: auto; margin-top: 10px; }
 .slides img { height: 120px; border-radius: 6px; border: 1px solid #E4DCC9; }

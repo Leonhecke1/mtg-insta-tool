@@ -38,51 +38,99 @@ function toEnrichedCard(card: ScryfallCard, quantity: number): EnrichedCard {
   };
 }
 
+/**
+ * Baut eine EnrichedCard aus den von Moxfield/Archidekt mitgelieferten
+ * Fallback-Daten (siehe types.ts CardFallbackData), wenn Scryfall die
+ * Karte nicht liefern konnte.
+ */
+function fallbackToEnrichedCard(ref: RawCardRef): EnrichedCard {
+  const fb = ref.fallback!;
+  return {
+    name: ref.name,
+    quantity: ref.quantity,
+    manaCost: fb.manaCost,
+    typeLine: fb.typeLine,
+    oracleText: fb.oracleText,
+    colorIdentity: sortColorIdentity(fb.colorIdentity),
+    imageNormal: fb.imageNormal,
+    imageArtCrop: null,
+    priceEur: fb.priceEur,
+    scryfallId: "",
+  };
+}
+
+function resolveRef(
+  ref: RawCardRef,
+  found: Map<string, ScryfallCard>,
+  notFound: string[],
+  usedFallback: string[]
+): EnrichedCard | null {
+  const card = found.get(ref.name.toLowerCase());
+  if (card) return toEnrichedCard(card, ref.quantity);
+  if (ref.fallback) {
+    usedFallback.push(ref.name);
+    return fallbackToEnrichedCard(ref);
+  }
+  notFound.push(ref.name);
+  return null;
+}
+
 function resolveRefs(
   refs: RawCardRef[],
   found: Map<string, ScryfallCard>,
-  notFound: string[]
+  notFound: string[],
+  usedFallback: string[]
 ): EnrichedCard[] {
   const cards: EnrichedCard[] = [];
   for (const ref of refs) {
-    const card = found.get(ref.name.toLowerCase());
-    if (!card) {
-      notFound.push(ref.name);
-      continue;
-    }
-    cards.push(toEnrichedCard(card, ref.quantity));
+    const card = resolveRef(ref, found, notFound, usedFallback);
+    if (card) cards.push(card);
   }
   return cards;
 }
 
 /**
  * Reichert eine RawDeckList mit Scryfall-Kartendaten an und baut das
- * interne Deck-Modell. Wirft, wenn der Commander selbst nicht gefunden
- * wurde; einzelne nicht gefundene Mainboard/Maybeboard-Karten werden
- * uebersprungen und im Fehlerobjekt (notFoundNames) gesammelt.
+ * interne Deck-Modell. Wenn die Scryfall-Abfrage insgesamt fehlschlaegt
+ * (z.B. Wartungsfenster) oder einzelne Karten nicht liefert, wird pro
+ * Karte auf die von Moxfield/Archidekt mitgelieferten Fallback-Daten
+ * zurueckgegriffen (siehe parser/moxfield.ts, parser/archidekt.ts) -
+ * bei Rohtext-Importen gibt es keinen Fallback, dort ist Scryfall Pflicht.
+ * Wirft nur, wenn der Commander selbst weder ueber Scryfall noch Fallback
+ * aufloesbar ist; einzelne nicht aufloesbare Mainboard/Maybeboard-Karten
+ * werden uebersprungen und in notFoundNames gesammelt.
  */
 export async function enrichDeck(
   raw: RawDeckList
-): Promise<{ deck: Deck; notFoundNames: string[] }> {
+): Promise<{ deck: Deck; notFoundNames: string[]; usedFallbackNames: string[] }> {
   const allNames = [
-    raw.commanderName,
+    raw.commander.name,
     ...raw.mainboard.map((c) => c.name),
     ...raw.maybeboard.map((c) => c.name),
   ];
 
-  const { found, notFound: fetchNotFound } = await fetchScryfallCards(allNames);
-  const notFoundNames = [...fetchNotFound];
-
-  const commanderCard = found.get(raw.commanderName.toLowerCase());
-  if (!commanderCard) {
-    throw new Error(
-      `Commander "${raw.commanderName}" wurde bei Scryfall nicht gefunden. Namen pruefen (Sonderzeichen wie "Jötun"?).`
+  let found = new Map<string, ScryfallCard>();
+  try {
+    found = (await fetchScryfallCards(allNames)).found;
+  } catch (err) {
+    console.warn(
+      "[scryfall] Kartenabfrage komplett fehlgeschlagen, nutze nur Moxfield/Archidekt-Fallback-Daten wo vorhanden:",
+      err instanceof Error ? err.message : err
     );
   }
-  const commander = toEnrichedCard(commanderCard, 1);
 
-  const mainboard = resolveRefs(raw.mainboard, found, notFoundNames);
-  const maybeboard = resolveRefs(raw.maybeboard, found, notFoundNames);
+  const notFoundNames: string[] = [];
+  const usedFallbackNames: string[] = [];
+
+  const commander = resolveRef(raw.commander, found, notFoundNames, usedFallbackNames);
+  if (!commander) {
+    throw new Error(
+      `Commander "${raw.commander.name}" wurde bei Scryfall nicht gefunden und es liegen keine Fallback-Daten vor. Namen pruefen (Sonderzeichen wie "Jötun"?).`
+    );
+  }
+
+  const mainboard = resolveRefs(raw.mainboard, found, notFoundNames, usedFallbackNames);
+  const maybeboard = resolveRefs(raw.maybeboard, found, notFoundNames, usedFallbackNames);
 
   const colorIdentitySet = new Set<ColorCode>(commander.colorIdentity);
   for (const c of mainboard) {
@@ -106,5 +154,5 @@ export async function enrichDeck(
     cardCount,
   };
 
-  return { deck, notFoundNames };
+  return { deck, notFoundNames, usedFallbackNames };
 }

@@ -1,3 +1,17 @@
+/**
+ * Baut eine Scryfall-CDN-Bild-URL direkt aus einer Scryfall-Card-UUID,
+ * ohne die Scryfall-API zu befragen. cards.scryfall.io ist eine separate,
+ * statische Asset-Infrastruktur - lief in der Praxis auch weiter, als
+ * api.scryfall.com wegen Wartung down war. Wird als Fallback genutzt, wenn
+ * Moxfield/Archidekt-Importe eine scryfall_id/uid mitliefern, Scryfalls
+ * eigene API aber gerade nicht antwortet (siehe scryfall/enrich.ts).
+ * Erfordert wie die API selbst einen nicht-generischen User-Agent beim
+ * Abruf - Puppeteers Chromium-Default-UA erfuellt das bereits.
+ */
+export function scryfallCdnImageUrl(scryfallId: string): string {
+  return `https://cards.scryfall.io/normal/front/${scryfallId[0]}/${scryfallId[1]}/${scryfallId}.jpg`;
+}
+
 export interface ScryfallImageUris {
   normal?: string;
   art_crop?: string;
