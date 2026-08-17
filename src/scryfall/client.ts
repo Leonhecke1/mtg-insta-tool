@@ -9,11 +9,15 @@
  * Abruf - Puppeteers Chromium-Default-UA erfuellt das bereits.
  */
 export function scryfallCdnImageUrl(scryfallId: string): string {
-  return `https://cards.scryfall.io/normal/front/${scryfallId[0]}/${scryfallId[1]}/${scryfallId}.jpg`;
+  // "large" (672x936) instead of "normal" (488x680) - slides blow this
+  // image up well past 488px wide (cover, hero), and "normal" was visibly
+  // soft/pixelated there (see user feedback).
+  return `https://cards.scryfall.io/large/front/${scryfallId[0]}/${scryfallId[1]}/${scryfallId}.jpg`;
 }
 
 export interface ScryfallImageUris {
   normal?: string;
+  large?: string;
   art_crop?: string;
   [key: string]: string | undefined;
 }
@@ -88,7 +92,7 @@ async function postCollectionWithRetry(
       if (!res.ok) {
         const bodyText = await res.text().catch(() => "");
         const err = new Error(
-          `Scryfall ${res.status} bei ${API_URL}: ${bodyText.slice(0, 300)}`
+          `Scryfall ${res.status} at ${API_URL}: ${bodyText.slice(0, 300)}`
         ) as Error & { status?: number };
         err.status = res.status;
         throw err;
@@ -132,7 +136,7 @@ async function fetchNamedIndividually(
           break;
         }
         if (!res.ok) {
-          const err = new Error(`Scryfall ${res.status} bei /cards/named (${name})`) as Error & {
+          const err = new Error(`Scryfall ${res.status} at /cards/named (${name})`) as Error & {
             status?: number;
           };
           err.status = res.status;
@@ -179,7 +183,7 @@ export async function fetchScryfallCards(
       batchNotFound = data.not_found.map((nf) => nf.name).filter((n): n is string => !!n);
     } catch (err) {
       console.warn(
-        "[scryfall] Batch-Endpoint dauerhaft fehlgeschlagen, weiche auf Einzelabfragen aus:",
+        "[scryfall] Batch endpoint failed persistently, falling back to individual queries:",
         err instanceof Error ? err.message : err
       );
       const fallback = await fetchNamedIndividually(batch);

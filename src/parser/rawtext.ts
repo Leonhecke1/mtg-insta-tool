@@ -98,7 +98,7 @@ export function parseRawDecklist(text: string): RawDeckList {
 
   if (commanderNames.length === 0) {
     throw new Error(
-      'Kein Commander gefunden. Erwartet eine Zeile "Commander: <Name>" (mehrfach bei Partner/Background) oder "*CMDR*"-Markierung.'
+      'No commander found. Expected a "Commander: <Name>" line (multiple for Partner/Background) or a "*CMDR*" marker.'
     );
   }
 

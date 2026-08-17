@@ -1,36 +1,16 @@
-import { Deck, EnrichedCard, GeneratedTexts, SlideKind } from "../types";
+import { ColorCode, Deck, EnrichedCard, GeneratedTexts, SlideKind } from "../types";
+import { analyticsSlide } from "./slides/analytics";
 import { coverSlide } from "./slides/cover";
 import { cropGridSlide } from "./slides/cropGrid";
 import { gameplanSlide } from "./slides/gameplan";
+import { heroCoverSlide } from "./slides/hero";
 import { priceSlide } from "./slides/price";
 import { upgradesSlide } from "./slides/upgrades";
+import { isArtifactOrEnchantment, isCreature, isInstant, isLand, isSorcery } from "./classify";
 
 export interface BuiltSlide {
   html: string;
   kind: SlideKind;
-}
-
-function isCreature(c: EnrichedCard): boolean {
-  return /creature/i.test(c.typeLine);
-}
-function isLand(c: EnrichedCard): boolean {
-  return /land/i.test(c.typeLine) && !isCreature(c);
-}
-function isInstant(c: EnrichedCard): boolean {
-  return /instant/i.test(c.typeLine) && !isCreature(c);
-}
-function isSorcery(c: EnrichedCard): boolean {
-  return /sorcery/i.test(c.typeLine) && !isCreature(c);
-}
-function isArtifactOrEnchantment(
-  c: EnrichedCard,
-  alreadyCreature: boolean,
-  alreadyLand: boolean,
-  alreadyInstant: boolean,
-  alreadySorcery: boolean
-): boolean {
-  if (alreadyCreature || alreadyLand || alreadyInstant || alreadySorcery) return false;
-  return true; // Auffangbecken: Artefakte, Verzauberungen, Planeswalker, Battles etc.
 }
 
 /**
@@ -40,69 +20,100 @@ function isArtifactOrEnchantment(
  * API-Publish mehr (siehe README) -> kein 10-Bilder-Hardlimit der
  * Instagram Graph API mehr noetig; Obergrenze ist die von Instagram fuer
  * manuelle Carousel-Uploads (20, siehe SPEC.md "Instagram-Publishing").
- * Reihenfolge: Cover, Kreaturen+Commander, Spontanzauber (Instants),
- * Hexereien (Sorceries), Artefakte/Verzauberungen, Laender, Gameplan,
- * Preis, Upgrades (nur falls Maybeboard/Sideboard vorhanden).
+ * Reihenfolge: Hero (grosses Commander-Artwork), Cover, Kreaturen+Commander,
+ * Spontanzauber (Instants),
+ * Hexereien (Sorceries), Artefakte/Verzauberungen, Laender, Deck-Breakdown
+ * (Mana-Kurve + Farbpips), Gameplan, Preis, Upgrades (nur falls
+ * Maybeboard/Sideboard vorhanden).
  */
 const MAX_SLIDES = 20;
+// Keeps every crop-grid tile legible - beyond this many cards per category,
+// split across multiple slides instead of shrinking tiles further.
+const MAX_CARDS_PER_SLIDE = 16;
+
+function splitIntoChunks<T>(items: T[], maxPerChunk: number): T[][] {
+  if (items.length <= maxPerChunk) return [items];
+  const numChunks = Math.ceil(items.length / maxPerChunk);
+  const chunkSize = Math.ceil(items.length / numChunks);
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+function pushCardSlides(
+  slides: BuiltSlide[],
+  kind: SlideKind,
+  baseTitle: string,
+  displayCount: number,
+  cards: EnrichedCard[],
+  colorIdentity: ColorCode[],
+  seed: number
+): void {
+  const chunks = splitIntoChunks(cards, MAX_CARDS_PER_SLIDE);
+  chunks.forEach((chunk, i) => {
+    const title = chunks.length > 1 ? `${baseTitle} (${i + 1}/${chunks.length})` : baseTitle;
+    slides.push({
+      html: cropGridSlide(title, displayCount, chunk, colorIdentity, seed),
+      kind,
+    });
+  });
+}
 
 export function buildSlides(deck: Deck, texts: GeneratedTexts): BuiltSlide[] {
   const creatures = deck.mainboard.filter(isCreature);
   const lands = deck.mainboard.filter(isLand);
   const instants = deck.mainboard.filter(isInstant);
   const sorceries = deck.mainboard.filter(isSorcery);
-  const artifactsEnchantments = deck.mainboard.filter((c) =>
-    isArtifactOrEnchantment(c, isCreature(c), isLand(c), isInstant(c), isSorcery(c))
-  );
+  const artifactsEnchantments = deck.mainboard.filter(isArtifactOrEnchantment);
 
   const creatureTile = [...deck.commanders, ...creatures];
 
   const slides: BuiltSlide[] = [];
 
-  slides.push({ html: coverSlide(deck, texts.tagline), kind: "cover" });
+  slides.push({ html: heroCoverSlide(deck), kind: "hero" });
+  slides.push({ html: coverSlide(deck, texts.tagline, texts.flavor), kind: "cover" });
 
-  slides.push({
-    html: cropGridSlide("Kreaturen + Commander", creatureTile.length, creatureTile, deck.colorIdentity, 2),
-    kind: "creatures",
-  });
+  pushCardSlides(
+    slides,
+    "creatures",
+    "Creatures + Commander",
+    creatureTile.length,
+    creatureTile,
+    deck.colorIdentity,
+    2
+  );
 
   if (instants.length > 0) {
-    slides.push({
-      html: cropGridSlide("Spontanzauber", instants.length, instants, deck.colorIdentity, 3),
-      kind: "instants",
-    });
+    pushCardSlides(slides, "instants", "Instants", instants.length, instants, deck.colorIdentity, 3);
   }
 
   if (sorceries.length > 0) {
-    slides.push({
-      html: cropGridSlide("Hexereien", sorceries.length, sorceries, deck.colorIdentity, 8),
-      kind: "sorceries",
-    });
+    pushCardSlides(slides, "sorceries", "Sorceries", sorceries.length, sorceries, deck.colorIdentity, 8);
   }
 
   if (artifactsEnchantments.length > 0) {
-    slides.push({
-      html: cropGridSlide(
-        "Artefakte + Verzauberungen",
-        artifactsEnchantments.length,
-        artifactsEnchantments,
-        deck.colorIdentity,
-        4
-      ),
-      kind: "artifacts",
-    });
+    pushCardSlides(
+      slides,
+      "artifacts",
+      "Artifacts + Enchantments",
+      artifactsEnchantments.length,
+      artifactsEnchantments,
+      deck.colorIdentity,
+      4
+    );
   }
 
   if (lands.length > 0) {
-    // count = physische Gesamtzahl (Basics zaehlen mehrfach), Kacheln
-    // bleiben pro Namen einmalig - Basics mit quantity>1 zeigen im
-    // Crop-Grid ein "Nx"-Badge statt N identischer Kacheln.
+    // count = physical total (basics count multiple times), tiles stay
+    // one-per-name - basics with quantity>1 show an "Nx" badge in the
+    // crop grid instead of N identical tiles.
     const totalLandCount = lands.reduce((sum, c) => sum + c.quantity, 0);
-    slides.push({
-      html: cropGridSlide("Laender", totalLandCount, lands, deck.colorIdentity, 5),
-      kind: "lands",
-    });
+    pushCardSlides(slides, "lands", "Lands", totalLandCount, lands, deck.colorIdentity, 5);
   }
+
+  slides.push({ html: analyticsSlide(deck), kind: "analytics" });
 
   slides.push({ html: gameplanSlide(deck, texts.gameplan), kind: "gameplan" });
   slides.push({ html: priceSlide(deck), kind: "price" });

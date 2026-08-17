@@ -54,7 +54,7 @@ export function extractArchidektId(input: string): string {
   // https://archidekt.com/decks/{id}/{slug}  oder  https://archidekt.com/decks/{id}
   const match = trimmed.match(/decks\/(\d+)/);
   if (!match) {
-    throw new Error(`Konnte Archidekt-Deck-ID nicht aus "${input}" extrahieren`);
+    throw new Error(`Could not extract Archidekt deck ID from "${input}"`);
   }
   return match[1];
 }
@@ -110,21 +110,22 @@ export async function fetchArchidektDeck(urlOrId: string): Promise<RawDeckList> 
   });
   if (!res.ok) {
     const bodyText = await res.text().catch(() => "");
-    throw new Error(`Archidekt ${res.status} bei ${apiUrl}: ${bodyText.slice(0, 300)}`);
+    throw new Error(`Archidekt ${res.status} at ${apiUrl}: ${bodyText.slice(0, 300)}`);
   }
-  const data = (await res.json()) as { cards?: ArchidektCardEntry[] };
+  const data = (await res.json()) as { name?: string; cards?: ArchidektCardEntry[] };
 
   const entries = Array.isArray(data.cards) ? data.cards : [];
   if (entries.length === 0) {
     throw new Error(
-      "Keine Karten im Archidekt-Deck gefunden - Response-Format hat sich moeglicherweise geaendert (cards[])"
+      "No cards found in the Archidekt deck - response format may have changed (cards[])"
     );
   }
 
-  // commanders: 2 Eintraege bei Partner/Background/Friends Forever.
-  // "Sideboard" wird wie "Maybeboard" behandelt - bei Commander-Decks gibt
-  // es kein echtes Sideboard, beide Kategorien sind auf verschiedenen
-  // Seiten/bei verschiedenen Nutzern die Ablage fuer Upgrade-Kandidaten.
+  // commanders: 2 entries for Partner/Background/Friends Forever.
+  // "Sideboard" is the actual upgrade-candidate pool shown on the
+  // Upgrades slide. "Maybeboard" is treated as a private brainstorming
+  // pile and excluded entirely (not mainboard, not upgrades) - keep
+  // these two categories separate, don't merge them.
   const commanders: RawCardRef[] = [];
   const mainboard: RawCardRef[] = [];
   const maybeboard: RawCardRef[] = [];
@@ -140,12 +141,11 @@ export async function fetchArchidektDeck(urlOrId: string): Promise<RawDeckList> 
       commanders.push({ name, quantity: 1, fallback });
       continue;
     }
-    if (
-      categories.includes("sideboard") ||
-      categories.includes("maybeboard") ||
-      categories.includes("maybe board")
-    ) {
+    if (categories.includes("sideboard") || categories.includes("side board")) {
       maybeboard.push({ name, quantity, fallback });
+      continue;
+    }
+    if (categories.includes("maybeboard") || categories.includes("maybe board")) {
       continue;
     }
     mainboard.push({ name, quantity, fallback });
@@ -153,9 +153,9 @@ export async function fetchArchidektDeck(urlOrId: string): Promise<RawDeckList> 
 
   if (commanders.length === 0) {
     throw new Error(
-      'Konnte keinen Commander im Archidekt-Deck finden - erwartet eine Karte mit Kategorie "Commander"'
+      'Could not find a commander in the Archidekt deck - expected a card with category "Commander"'
     );
   }
 
-  return { commanders, mainboard, maybeboard };
+  return { name: data.name || undefined, commanders, mainboard, maybeboard };
 }

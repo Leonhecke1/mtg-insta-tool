@@ -49,7 +49,31 @@
       "Bash(env)",
       "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx ts-node src/cli.ts generate --archidekt https://archidekt.com/decks/25118989/moonfall)",
       "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; node \"C:\\\\Users\\\\leonh\\\\.claude\\\\jobs\\\\97810ed5\\\\tmp\\\\api-test2.js\")",
-      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx ts-node src/cli.ts generate \"C:\\\\Users\\\\leonh\\\\.claude\\\\jobs\\\\97810ed5\\\\tmp\\\\partner-decklist.txt\")"
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd \"C:\\\\Users\\\\leonh\\\\Desktop\\\\Projekte\\\\mtg-insta-tool\"; npx ts-node src/cli.ts generate \"C:\\\\Users\\\\leonh\\\\.claude\\\\jobs\\\\97810ed5\\\\tmp\\\\partner-decklist.txt\")",
+      "Bash(node -e ' *)",
+      "Bash(mkdir -p \"/c/Users/leonh/AppData/Local/Temp/claude/C--Users-leonh-Desktop-Projekte-mtg-insta-tool/7c75b0ce-3b44-4b47-bf23-80a96364e1d3/scratchpad\")",
+      "Bash(curl -s \"https://archidekt.com/api/decks/25118989/\" -H \"User-Agent: mtg-insta-tool/0.1\" -o \"/c/Users/leonh/AppData/Local/Temp/claude/C--Users-leonh-Desktop-Projekte-mtg-insta-tool/7c75b0ce-3b44-4b47-bf23-80a96364e1d3/scratchpad/moonfall.json\")",
+      "Read(//c/Users/leonh/AppData/Local/Temp/claude/C--Users-leonh-Desktop-Projekte-mtg-insta-tool/7c75b0ce-3b44-4b47-bf23-80a96364e1d3/scratchpad/**)",
+      "Bash(npx ts-node *)",
+      "Bash(npx tsc *)",
+      "Bash(curl -s \"https://archidekt.com/api/decks/25118989/\" -H \"User-Agent: mtg-insta-tool/0.1\" -o \"C:/Users/leonh/AppData/Local/Temp/claude/C--Users-leonh-Desktop-Projekte-mtg-insta-tool/7c75b0ce-3b44-4b47-bf23-80a96364e1d3/scratchpad/moonfall2.json\")",
+      "WebFetch(domain:api.scryfall.com)",
+      "WebFetch(domain:scryfall.com)",
+      "Bash(curl -s \"https://api.scryfall.com/cards/named?exact=Simic%20Growth%20Chamber\" -H \"User-Agent: mtg-insta-tool/0.1\" -H \"Accept: application/json\")",
+      "Bash(curl -s \"https://api.scryfall.com/cards/named?exact=Patron%20of%20the%20Moon\" -H \"User-Agent: mtg-insta-tool/0.1\" -H \"Accept: application/json\")",
+      "Bash(curl -s \"https://api.scryfall.com/cards/named?exact=Lotus%20Cobra\" -H \"User-Agent: mtg-insta-tool/0.1\" -H \"Accept: application/json\")",
+      "Bash(curl -s \"https://api.scryfall.com/cards/named?exact=Retreat%20to%20Coralhelm\" -H \"User-Agent: mtg-insta-tool/0.1\" -H \"Accept: application/json\")",
+      "Bash(curl -s \"https://api.scryfall.com/cards/named?exact=Tatyova%2C%20Benthic%20Druid\" -H \"User-Agent: mtg-insta-tool/0.1\" -H \"Accept: application/json\")",
+      "Bash(curl -s \"https://archidekt.com/api/decks/25207791/\" -H \"User-Agent: mtg-insta-tool/0.1\" -o \"C:/Users/leonh/AppData/Local/Temp/claude/C--Users-leonh-Desktop-Projekte-mtg-insta-tool/7c75b0ce-3b44-4b47-bf23-80a96364e1d3/scratchpad/kamigawa_moonfall.json\")",
+      "Bash(git status *)",
+      "Bash(curl -s \"https://api.scryfall.com/cards/named?fuzzy=Rionya%2C%20Fire%20Dancer\" -H \"User-Agent: mtg-insta-tool/0.1 \\(+https://github.com/\\)\" -H \"Accept: application/json\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const j=JSON.parse\\(d\\);console.log\\(JSON.stringify\\(j.image_uris,null,2\\)\\);}\\)\")",
+      "Read(//c/Users/leonh/.claude/**)",
+      "Bash(curl *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d.get\\('set_name'\\), d.get\\('collector_number'\\)\\); print\\(d.get\\('prints_search_uri'\\)\\)\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const j=JSON.parse\\(d\\);console.log\\(j.total_cards\\);j.data.forEach\\(c=>console.log\\(c.id, c.set_name, c.collector_number, c.image_uris?.large\\)\\)}\\)\")",
+      "Bash(node -e \"const sizeOf=require\\('image-size'\\); console.log\\(sizeOf\\('out/fimHWusWe2/slide-10.png'\\)\\)\")",
+      "Bash(npx -y image-size out/fimHWusWe2/slide-10.png)"
     ]
   }
 }

@@ -23,7 +23,7 @@ export const config = {
 export function requireAnthropicConfigured(): void {
   if (!config.anthropicApiKey) {
     throw new Error(
-      "ANTHROPIC_API_KEY fehlt (.env) - LLM-Textgenerierung nicht moeglich"
+      "ANTHROPIC_API_KEY missing (.env) - LLM text generation not possible"
     );
   }
 }

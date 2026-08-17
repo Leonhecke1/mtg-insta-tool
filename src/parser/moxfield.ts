@@ -79,7 +79,7 @@ export function extractPublicId(input: string): string {
   // https://www.moxfield.com/decks/{publicId}  oder  https://api.moxfield.com/v3/decks/all/{publicId}
   const match = trimmed.match(/decks\/(?:all\/)?([A-Za-z0-9_-]+)\/?$/);
   if (!match) {
-    throw new Error(`Konnte Moxfield-publicId nicht aus "${input}" extrahieren`);
+    throw new Error(`Could not extract Moxfield publicId from "${input}"`);
   }
   return match[1];
 }
@@ -99,7 +99,7 @@ export async function fetchMoxfieldDeck(urlOrId: string): Promise<RawDeckList> {
   });
   if (!res.ok) {
     const bodyText = await res.text().catch(() => "");
-    throw new Error(`Moxfield ${res.status} bei ${apiUrl}: ${bodyText.slice(0, 300)}`);
+    throw new Error(`Moxfield ${res.status} at ${apiUrl}: ${bodyText.slice(0, 300)}`);
   }
   const data = (await res.json()) as Record<string, unknown>;
 
@@ -115,17 +115,18 @@ export async function fetchMoxfieldDeck(urlOrId: string): Promise<RawDeckList> {
 
   if (commanderEntries.length === 0) {
     throw new Error(
-      "Konnte keinen Commander im Moxfield-Deck finden - Response-Format hat sich moeglicherweise geaendert (boards.commanders)"
+      "Could not find a commander in the Moxfield deck - response format may have changed (boards.commanders)"
     );
   }
 
   if (mainEntries.length === 0) {
     throw new Error(
-      "Mainboard leer/nicht gefunden - Moxfield Response-Format pruefen (boards.mainboard)"
+      "Mainboard empty/not found - check Moxfield response format (boards.mainboard)"
     );
   }
 
   return {
+    name: typeof data.name === "string" ? data.name : undefined,
     commanders: commanderEntries.map((e) => ({
       name: e.card!.name as string,
       quantity: 1,

@@ -21,7 +21,7 @@ if (config.basicAuthUser && config.basicAuthPass) {
   });
 } else {
   console.warn(
-    "[server] BASIC_AUTH_USER/BASIC_AUTH_PASS nicht gesetzt - Web-UI ist OHNE Passwortschutz erreichbar!"
+    "[server] BASIC_AUTH_USER/BASIC_AUTH_PASS not set - web UI is reachable WITHOUT password protection!"
   );
 }
 
@@ -49,7 +49,7 @@ app.get("/api/jobs", (_req, res) => {
 
 app.get("/api/jobs/:id", (req, res) => {
   const job = getJob(req.params.id);
-  if (!job) return res.status(404).json({ error: "Job nicht gefunden" });
+  if (!job) return res.status(404).json({ error: "Job not found" });
   res.json({
     ...toSummary(job),
     caption: job.result?.caption,
@@ -64,13 +64,13 @@ app.post("/api/jobs", async (req, res) => {
   const useLlm = body.useLlm === true;
 
   if (kind === "raw" && !body.raw) {
-    return res.status(400).json({ error: "raw-Deckliste fehlt" });
+    return res.status(400).json({ error: "raw decklist missing" });
   }
   if (kind === "moxfield" && !body.moxfieldUrl) {
-    return res.status(400).json({ error: "moxfieldUrl fehlt" });
+    return res.status(400).json({ error: "moxfieldUrl missing" });
   }
   if (kind === "archidekt" && !body.archidektUrl) {
-    return res.status(400).json({ error: "archidektUrl fehlt" });
+    return res.status(400).json({ error: "archidektUrl missing" });
   }
 
   const jobId = nanoid(10);
@@ -126,18 +126,20 @@ app.post("/api/jobs", async (req, res) => {
 app.post("/api/jobs/:id/texts", async (req, res) => {
   const job = getJob(req.params.id);
   if (!job?.result) {
-    return res.status(404).json({ error: "Job (mit Ergebnis) nicht gefunden" });
+    return res.status(404).json({ error: "Job (with result) not found" });
   }
 
   const patch = req.body ?? {};
   const merged: GeneratedTexts = {
     tagline: typeof patch.tagline === "string" ? patch.tagline : job.result.texts.tagline,
+    flavor: typeof patch.flavor === "string" ? patch.flavor : job.result.texts.flavor,
     gameplan: patch.gameplan ?? job.result.texts.gameplan,
     caption: patch.caption ?? job.result.texts.caption,
   };
 
   try {
-    const rendered = await renderDeckTech(job.result.deck, merged, job.id);
+    const sourceUrl = job.input.moxfieldUrl ?? job.input.archidektUrl;
+    const rendered = await renderDeckTech(job.result.deck, merged, job.id, sourceUrl);
     updateJob(job.id, {
       status: "ready",
       result: {
@@ -157,5 +159,5 @@ app.post("/api/jobs/:id/texts", async (req, res) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`[server] mtg-insta-tool laeuft auf http://localhost:${config.port}`);
+  console.log(`[server] mtg-insta-tool running on http://localhost:${config.port}`);
 });

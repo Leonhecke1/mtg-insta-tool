@@ -1,25 +1,25 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>floating._.mana — Deck Tech Generator</title>
+<title>floating.mana — Deck Tech Generator</title>
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <header>
-    <h1>floating._.mana</h1>
-    <p class="subtitle">MTG Commander Deck-Tech &rarr; Slides + Caption als ZIP</p>
+    <h1>floating.mana</h1>
+    <p class="subtitle">MTG Commander Deck Tech &rarr; Slides + Caption as ZIP</p>
   </header>
 
   <main>
     <section class="panel">
-      <h2>Deckliste</h2>
+      <h2>Decklist</h2>
 
       <div class="tabs">
-        <button type="button" class="tab active" data-kind="raw">Rohtext</button>
-        <button type="button" class="tab" data-kind="moxfield">Moxfield-URL</button>
-        <button type="button" class="tab" data-kind="archidekt">Archidekt-URL</button>
+        <button type="button" class="tab active" data-kind="raw">Raw Text</button>
+        <button type="button" class="tab" data-kind="moxfield">Moxfield URL</button>
+        <button type="button" class="tab" data-kind="archidekt">Archidekt URL</button>
       </div>
 
       <textarea id="raw-input" rows="14" placeholder="Commander: Miirym, Sentinel Wyrm
@@ -35,15 +35,15 @@ Sideboard:
       <input id="moxfield-input" type="text" placeholder="https://www.moxfield.com/decks/xxxxxxxxxxxxxxxxxxxx" style="display:none" />
       <input id="archidekt-input" type="text" placeholder="https://archidekt.com/decks/xxxxxxx/deck-name" style="display:none" />
 
-      <h2>Einstellungen</h2>
+      <h2>Settings</h2>
       <div class="settings-grid">
         <label class="checkbox">
           <input id="use-llm" type="checkbox" />
-          LLM-Texte (Gameplan/Upgrades/Caption) generieren (braucht Anthropic-API-Guthaben)
+          Generate LLM texts (Gameplan/Upgrades/Caption) (needs Anthropic API credit)
         </label>
       </div>
 
-      <button id="generate-btn" class="primary">Generieren</button>
+      <button id="generate-btn" class="primary">Generate</button>
       <p id="generate-status"></p>
     </section>
 

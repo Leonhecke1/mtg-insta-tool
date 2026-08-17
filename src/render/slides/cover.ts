@@ -3,8 +3,10 @@ import { buildSlideHtml } from "../layoutBase";
 import { commanderDisplayName, escapeHtml, floatingManaCircles, formatEur } from "../components";
 import { COLORS, colorComboName } from "../theme";
 
-const IMAGE_HEIGHT = 520;
-const IMAGE_WIDTH = 373; // ~ Scryfall-Kartenverhaeltnis 488/680, volle Karte sichtbar
+// Grossflaechig, damit der Commander auch im kleinen Feed-/Carousel-Thumbnail
+// (Instagram-Uebersicht) noch erkennbar ist - siehe Nutzer-Feedback.
+const IMAGE_HEIGHT = 700;
+const IMAGE_WIDTH = 502; // ~ Scryfall-Kartenverhaeltnis 488/680, volle Karte sichtbar
 const CARD_ASPECT_WH = 488 / 680;
 const PAIR_GAP = 16;
 
@@ -57,10 +59,11 @@ function commanderImagesHtml(deck: Deck): string {
     </div>`;
 }
 
-export function coverSlide(deck: Deck, tagline: string): string {
+export function coverSlide(deck: Deck, tagline: string, flavor: string): string {
   const circles = floatingManaCircles(deck.colorIdentity, 1, 5);
   const combo = colorComboName(deck.colorIdentity);
   const commanderName = commanderDisplayName(deck.commanders);
+  const headline = deck.deckName || commanderName;
 
   const content = `
     <div style="display:flex; flex-direction:column; height:100%; padding: 90px 72px 140px;">
@@ -74,16 +77,23 @@ export function coverSlide(deck: Deck, tagline: string): string {
         letter-spacing: 0.04em;
         text-transform: uppercase;
         color: ${COLORS.textSecondary};
-      ">Deck Tech &middot; EDH</div>
+      ">${escapeHtml(flavor)}</div>
 
       <div style="flex:1; display:flex; align-items:center; gap: 40px;">
         <div style="flex:1; min-width:0;">
           <h1 style="
-            font-size: ${deck.commanders.length > 1 ? 58 : 72}px;
+            font-size: ${deck.commanders.length > 1 || headline.length > 22 ? 58 : 72}px;
             line-height: 1.1;
             font-weight: 500;
             color:${COLORS.textPrimary};
-          ">${escapeHtml(commanderName)}</h1>
+          ">${escapeHtml(headline)}</h1>
+          ${
+            deck.deckName
+              ? `<div style="margin-top:14px; font-size:22px; font-weight:500; color:${COLORS.textSecondary};">Commander: ${escapeHtml(
+                  commanderName
+                )}</div>`
+              : ""
+          }
           <p style="
             margin-top: 24px;
             font-size: 30px;
@@ -103,11 +113,11 @@ export function coverSlide(deck: Deck, tagline: string): string {
         border-radius: 16px;
         padding: 28px 32px;
       ">
-        ${teaserStat(String(deck.cardCount), "Karten")}
+        ${teaserStat(String(deck.cardCount), "Cards")}
         ${divider()}
-        ${teaserStat(combo, "Farbidentitaet")}
+        ${teaserStat(combo, "Colors")}
         ${divider()}
-        ${teaserStat(formatEur(deck.totalPriceEur), "Gesamtpreis")}
+        ${teaserStat(formatEur(deck.totalPriceEur), "Total Price")}
       </div>
     </div>
   `;

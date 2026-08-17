@@ -31,7 +31,9 @@ function toEnrichedCard(card: ScryfallCard, quantity: number): EnrichedCard {
     typeLine,
     oracleText,
     colorIdentity: sortColorIdentity(card.color_identity ?? []),
-    imageNormal: imageUris?.normal ?? null,
+    // "large" (672x936) over "normal" (488x680) - the cover/hero slides
+    // blow this up well past 488px wide and "normal" looked visibly soft.
+    imageNormal: imageUris?.large ?? imageUris?.normal ?? null,
     imageArtCrop: imageUris?.art_crop ?? null,
     priceEur: priceEur != null && !Number.isNaN(priceEur) ? priceEur : null,
     scryfallId: card.id,
@@ -115,7 +117,7 @@ export async function enrichDeck(
     found = (await fetchScryfallCards(allNames)).found;
   } catch (err) {
     console.warn(
-      "[scryfall] Kartenabfrage komplett fehlgeschlagen, nutze nur Moxfield/Archidekt-Fallback-Daten wo vorhanden:",
+      "[scryfall] Card lookup failed entirely, using only Moxfield/Archidekt fallback data where available:",
       err instanceof Error ? err.message : err
     );
   }
@@ -127,7 +129,7 @@ export async function enrichDeck(
   if (commanders.length === 0) {
     const names = raw.commanders.map((c) => `"${c.name}"`).join(", ");
     throw new Error(
-      `Commander (${names}) wurden bei Scryfall nicht gefunden und es liegen keine Fallback-Daten vor. Namen pruefen (Sonderzeichen wie "Jötun"?).`
+      `Commander (${names}) were not found on Scryfall and no fallback data is available. Check the names (special characters like "Jötun"?).`
     );
   }
 
@@ -151,6 +153,7 @@ export async function enrichDeck(
     mainboard.reduce((sum, c) => sum + (c.priceEur ?? 0) * c.quantity, 0);
 
   const deck: Deck = {
+    deckName: raw.name,
     commanders,
     mainboard,
     maybeboard,

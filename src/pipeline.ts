@@ -32,8 +32,16 @@ export interface RenderedDeckTech {
   zipFile: string;
 }
 
-function buildCaptionText(body: string, hashtags: string[]): string {
-  return `${body}\n\n${hashtags.join(" ")}\n`;
+/**
+ * Instagram doesn't hyperlink URLs in captions, so the convention is either
+ * the raw decklist link (still useful to paste/copy) when we actually have
+ * one (Moxfield/Archidekt import), or a "link in bio" pointer when we don't
+ * (raw-text import has no source URL). Always appended - a caption without
+ * any way back to the decklist is a caption nobody can act on.
+ */
+function buildCaptionText(body: string, hashtags: string[], sourceUrl?: string): string {
+  const linkLine = sourceUrl ? `Full decklist: ${sourceUrl}` : "Full decklist: link in bio";
+  return `${body}\n\n${linkLine}\n\n${hashtags.join(" ")}\n`;
 }
 
 /**
@@ -45,7 +53,8 @@ function buildCaptionText(body: string, hashtags: string[]): string {
 export async function renderDeckTech(
   deck: Deck,
   texts: GeneratedTexts,
-  jobId: string
+  jobId: string,
+  sourceUrl?: string
 ): Promise<RenderedDeckTech> {
   const builtSlides = buildSlides(deck, texts);
   const htmlSlides = builtSlides.map((s) => s.html);
@@ -54,7 +63,7 @@ export async function renderDeckTech(
   const jobDir = path.join(config.outDir, jobId);
   const slideFiles = await renderSlidesToFiles(htmlSlides, jobDir);
 
-  const caption = buildCaptionText(texts.caption.body, texts.caption.hashtags);
+  const caption = buildCaptionText(texts.caption.body, texts.caption.hashtags, sourceUrl);
   const captionFile = path.join(jobDir, "caption.txt");
   fs.writeFileSync(captionFile, caption, "utf-8");
 
@@ -88,7 +97,8 @@ export async function runPipeline(
 
   const { deck, notFoundNames, usedFallbackNames } = await enrichDeck(raw);
   const texts = await generateTexts(deck, opts.useLlm);
-  const rendered = await renderDeckTech(deck, texts, opts.jobId);
+  const sourceUrl = input.moxfieldUrl ?? input.archidektUrl;
+  const rendered = await renderDeckTech(deck, texts, opts.jobId, sourceUrl);
 
   return {
     ...rendered,

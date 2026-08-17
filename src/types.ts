@@ -21,6 +21,9 @@ export interface RawCardRef {
 }
 
 export interface RawDeckList {
+  // Deck title as given by Moxfield/Archidekt - undefined for raw-text
+  // imports, which don't carry a deck name.
+  name?: string;
   // 1 Eintrag normal, 2 bei Partner/Background/Friends-Forever-Commandern
   commanders: RawCardRef[];
   mainboard: RawCardRef[];
@@ -41,6 +44,9 @@ export interface EnrichedCard {
 }
 
 export interface Deck {
+  // Deck title from Moxfield/Archidekt - falls back to the commander
+  // name on the cover slide when absent (raw-text imports).
+  deckName?: string;
   // 1 Eintrag normal, 2 bei Partner/Background/Friends-Forever-Commandern
   commanders: EnrichedCard[];
   mainboard: EnrichedCard[];
@@ -62,6 +68,9 @@ export interface CaptionText {
 
 export interface GeneratedTexts {
   tagline: string;
+  // Short evocative badge line on the cover slide (MTG flavor-text style),
+  // replaces the old static "Deck Tech · EDH" label.
+  flavor: string;
   gameplan: GameplanText;
   caption: CaptionText;
 }
@@ -72,12 +81,14 @@ export interface GenerateSettings {
 }
 
 export type SlideKind =
+  | "hero"
   | "cover"
   | "creatures"
   | "instants"
   | "sorceries"
   | "artifacts"
   | "lands"
+  | "analytics"
   | "gameplan"
   | "price"
   | "upgrades";

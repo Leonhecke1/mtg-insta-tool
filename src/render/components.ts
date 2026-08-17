@@ -107,7 +107,7 @@ export function renderManaCircles(circles: CircleSpec[]): string {
 }
 
 export function handleSignature(): string {
-  return `<div class="handle-signature">floating_mana</div>`;
+  return `<div class="handle-signature">floating.mana</div>`;
 }
 
 export function colorPips(colorIdentity: ColorCode[]): string {
@@ -142,7 +142,7 @@ export function escapeHtml(str: string): string {
 
 export function formatEur(amount: number | null): string {
   if (amount == null) return "n/a";
-  return amount.toLocaleString("de-DE", {
+  return amount.toLocaleString("en-IE", {
     style: "currency",
     currency: "EUR",
     minimumFractionDigits: 2,

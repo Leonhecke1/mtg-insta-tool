@@ -12,18 +12,21 @@ export function fallbackTexts(deck: Deck): GeneratedTexts {
   const commanderName = commanderDisplayName(deck.commanders);
 
   return {
-    tagline: `${combo}-Deck rund um ${commanderName}.`,
+    tagline: `A ${combo} deck built around ${commanderName}.`,
+    // No LLM available to write real flavor text - fall back to a plain
+    // archetype tag instead of guessing at something evocative.
+    flavor: `${combo} · EDH`,
     gameplan: {
       paragraphs: [
-        `${commanderName} bildet das Zentrum dieses ${combo}-Decks mit ${deck.cardCount} Karten.`,
-        `Das Mainboard kombiniert ${deck.mainboard.length} Karten, die auf den Commander einzahlen - Details dazu bitte im LLM-Modus generieren lassen (ANTHROPIC_API_KEY setzen) oder selbst bearbeiten (Slide anklicken).`,
+        `${commanderName} is the centerpiece of this ${combo} deck with ${deck.cardCount} cards.`,
+        `The mainboard combines ${deck.mainboard.length} cards that feed into the commander - for more detail, generate with LLM mode (set ANTHROPIC_API_KEY) or edit it yourself (click the slide).`,
       ],
-      steps: ["Rampen & Board aufbauen", "Synergien vernetzen", "Commander durchsetzen"],
+      steps: ["Ramp & build the board", "Connect the synergies", "Push the commander through"],
     },
     caption: {
-      body: `Deck Tech: ${commanderName} (${combo}) - ${deck.cardCount} Karten, ${formatEur(
+      body: `Deck Tech: ${commanderName} (${combo}) - ${deck.cardCount} cards, ${formatEur(
         deck.totalPriceEur
-      )} Cardmarket-Trend.`,
+      )} Cardmarket trend.`,
       hashtags: ["#edh", "#commander", "#mtg", "#magicthegathering", "#deckTech"],
     },
   };

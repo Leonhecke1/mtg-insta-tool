@@ -5,15 +5,16 @@ import { colorComboName } from "../render/theme";
 import { commanderDisplayName, formatEur } from "../render/components";
 import { fallbackTexts } from "./fallback";
 
-const RESPONSE_SCHEMA_HINT = `Antworte AUSSCHLIESSLICH mit einem JSON-Objekt (kein Markdown, kein Fliesstext drumherum) in exakt dieser Form:
+const RESPONSE_SCHEMA_HINT = `Reply with ONLY a JSON object (no markdown, no surrounding prose) in exactly this shape:
 {
-  "tagline": "ein Satz, max. 90 Zeichen",
+  "tagline": "one sentence, max. 90 characters",
+  "flavor": "a short evocative badge line, max. 40 characters",
   "gameplan": {
-    "paragraphs": ["Absatz 1", "Absatz 2", "Absatz 3 (optional)"],
-    "steps": ["Schritt 1 (kurz)", "Schritt 2 (kurz)", "Schritt 3 (kurz)"]
+    "paragraphs": ["Paragraph 1", "Paragraph 2", "Paragraph 3 (optional)"],
+    "steps": ["Step 1 (short)", "Step 2 (short)", "Step 3 (short)"]
   },
   "caption": {
-    "body": "Instagram-Caption, 2-4 Saetze, ohne Hashtags",
+    "body": "Instagram caption, 2-4 sentences, no hashtags",
     "hashtags": ["#edh", "#commander", "..."]
   }
 }`;
@@ -26,21 +27,22 @@ function buildPrompt(deck: Deck): string {
     .map((c) => `${c.name}${c.oracleText ? ` - ${c.oracleText}` : ""}`)
     .join("\n");
 
-  return `Du schreibst Inhalte fuer einen Instagram-Deck-Tech-Carousel-Post ueber ein Magic: The Gathering Commander-Deck. Zielgruppe: MTG-Commander-Spieler, Ton: locker-kompetent, kein Hype-Marketing-Sprech, keine Emojis im Fliesstext.
+  return `You are writing content for an Instagram deck-tech carousel post about a Magic: The Gathering Commander deck. Write everything in English. Audience: MTG Commander players, tone: casual-competent, no hype marketing speak, no emojis in the body text.
 
 Commander${deck.commanders.length > 1 ? " (Partner/Background)" : ""}: ${commanderDisplayName(deck.commanders)}
 ${commanderLines}
-Farbidentitaet: ${colorComboName(deck.colorIdentity)} (${deck.colorIdentity.join("") || "farblos"})
-Kartenanzahl: ${deck.cardCount}
-Gesamtpreis (Cardmarket-Trend): ${formatEur(deck.totalPriceEur)}
+Color identity: ${colorComboName(deck.colorIdentity)} (${deck.colorIdentity.join("") || "colorless"})
+Card count: ${deck.cardCount}
+Total price (Cardmarket trend): ${formatEur(deck.totalPriceEur)}
 
 Mainboard:
 ${mainboardList}
 
-Aufgaben:
-1. tagline: Ein pointierter Satz fuer die Cover-Slide, der die Strategie des Decks auf den Punkt bringt.
-2. gameplan: 2-3 Absaetze, die erklaeren was das Deck macht (Strategie, Schluesselsynergien, Wincondition), basierend auf Commander(n) + Kartenliste. Danach eine 3-Schritte-Kurzzusammenfassung (z.B. "Rampen", "...", "...").
-3. caption: Kurze Instagram-Caption (2-4 Saetze) + 8-15 relevante Hashtags (u.a. #edh #commander #mtg, plus deckspezifische wie Farbkombi/Commander-Name/Archetyp).
+Tasks:
+1. tagline: A punchy sentence for the cover slide that nails the deck's strategy.
+2. flavor: A short evocative line for a small badge on the cover slide - written like real Magic card flavor text (moody, thematic, in-world), not a literal label like "Deck Tech" or a data tag like "Simic - EDH". Think of the italic quote at the bottom of a card.
+3. gameplan: 2-3 paragraphs explaining what the deck does (strategy, key synergies, win condition), based on the commander(s) + card list. Then a 3-step short summary (e.g. "Ramp", "...", "...").
+4. caption: Short Instagram caption (2-4 sentences) + 8-15 relevant hashtags (incl. #edh #commander #mtg, plus deck-specific ones like color combo/commander name/archetype).
 
 ${RESPONSE_SCHEMA_HINT}`;
 }
@@ -50,7 +52,7 @@ function extractJson(text: string): unknown {
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
   if (start === -1 || end === -1) {
-    throw new Error("Keine JSON-Struktur in LLM-Antwort gefunden");
+    throw new Error("No JSON structure found in LLM response");
   }
   return JSON.parse(trimmed.slice(start, end + 1));
 }
@@ -66,11 +68,12 @@ function validateAndNormalize(parsed: any): GeneratedTexts {
     : [];
 
   if (paragraphs.length === 0 || typeof parsed?.tagline !== "string" || typeof parsed?.caption?.body !== "string") {
-    throw new Error("LLM-Antwort unvollstaendig/ungueltig");
+    throw new Error("LLM response incomplete/invalid");
   }
 
   return {
     tagline: parsed.tagline,
+    flavor: typeof parsed.flavor === "string" && parsed.flavor.trim() ? parsed.flavor : "Deck Tech",
     gameplan: {
       paragraphs,
       steps: [steps[0] ?? "", steps[1] ?? "", steps[2] ?? ""],
@@ -111,7 +114,7 @@ export async function generateTexts(deck: Deck, useLlm: boolean): Promise<Genera
     const parsed = extractJson(textBlock.text);
     return validateAndNormalize(parsed);
   } catch (err) {
-    console.error("[llm] Generierung fehlgeschlagen, nutze Fallback-Texte:", err);
+    console.error("[llm] Generation failed, using fallback texts:", err);
     return fallbackTexts(deck);
   }
 }

@@ -4,7 +4,7 @@ Tool, das aus einer Magic-the-Gathering-Commander-Deckliste automatisch einen
 Instagram-Carousel-Post generiert (Slides als Bilder + Caption) und diesen
 optional direkt über die Instagram Graph API veröffentlicht.
 
-Instagram-Channel: **floating._.mana**
+Instagram-Channel: **floating.mana**
 
 ---
 
@@ -87,7 +87,7 @@ Bewusst KEIN dunkler Standard-Deck-Tech-Look. Hell, warm, editorial:
   des Decks: W `#F8E7B9`, U `#B6CFE8`, B `#A69F8D`, R `#EFA98B`, G `#C2D8CB`
 - **Mana-Symbole:** echte Symbole in den Kreisen und bei Manakosten via
   Mana-Font von Andrew Gioia (https://mana.andrewgioia.com, npm: `mana-font`)
-- **Handle-Signatur:** `floating._.mana` dezent auf jeder Slide
+- **Handle-Signatur:** `floating.mana` dezent auf jeder Slide
 - **Format:** 1080×1350 px (4:5)
 
 ### Crop-Grid (Kartenlisten-Slides)

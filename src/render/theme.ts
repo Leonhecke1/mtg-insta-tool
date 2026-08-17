@@ -20,52 +20,60 @@ export const MANA_CIRCLE_COLORS: Record<ColorCode, string> = {
 };
 
 export const COLOR_NAMES: Record<ColorCode, string> = {
-  W: "Weiss",
-  U: "Blau",
-  B: "Schwarz",
-  R: "Rot",
-  G: "Gruen",
+  W: "White",
+  U: "Blue",
+  B: "Black",
+  R: "Red",
+  G: "Green",
 };
 
-// Gaengige Farbkombi-Namen (Guild/Shard/Wedge) fuer die Cover-Teaser-Leiste
+// Common color-combo names (Guild/Shard/Wedge) for the cover teaser bar.
+// Keys MUST be in COLOR_ORDER (W,U,B,R,G) relative order - that's the order
+// sortColorIdentity (scryfall/enrich.ts) always produces, and colorComboName
+// re-canonicalizes to it below regardless of input order. Writing a wedge's
+// traditional letter order here instead (e.g. Bant as "GWU") looks right but
+// silently never matches, since W always sorts before G - verify any new
+// entry by checking each letter appears in W,U,B,R,G order.
 const COMBO_NAMES: Record<string, string> = {
-  W: "Mono-Weiss",
-  U: "Mono-Blau",
-  B: "Mono-Schwarz",
-  R: "Mono-Rot",
-  G: "Mono-Gruen",
+  W: "Mono-White",
+  U: "Mono-Blue",
+  B: "Mono-Black",
+  R: "Mono-Red",
+  G: "Mono-Green",
   WU: "Azorius",
   UB: "Dimir",
   BR: "Rakdos",
   RG: "Gruul",
-  GW: "Selesnya",
+  WG: "Selesnya",
   WB: "Orzhov",
   UR: "Izzet",
   BG: "Golgari",
-  RW: "Boros",
-  GU: "Simic",
+  WR: "Boros",
+  UG: "Simic",
   WUB: "Esper",
   UBR: "Grixis",
   BRG: "Jund",
-  RGW: "Naya",
-  GWU: "Bant",
+  WRG: "Naya",
+  WUG: "Bant",
   WBR: "Mardu",
   URG: "Temur",
-  BGW: "Abzan",
-  RWU: "Jeskai",
-  GUB: "Sultai",
+  WBG: "Abzan",
+  WUR: "Jeskai",
+  UBG: "Sultai",
   WUBR: "Yore-Tiller (WUBR)",
   UBRG: "Glint-Eye (UBRG)",
-  BRGW: "Dune-Brood (BRGW)",
-  RGWU: "Ink-Treader (RGWU)",
-  GWUB: "Witch-Maw (GWUB)",
-  WUBRG: "Fuenffarbig",
+  WBRG: "Dune-Brood (BRGW)",
+  WURG: "Ink-Treader (RGWU)",
+  WUBG: "Witch-Maw (GWUB)",
+  WUBRG: "Five-Color",
 };
 
+const COLOR_ORDER: ColorCode[] = ["W", "U", "B", "R", "G"];
+
 export function colorComboName(colorIdentity: ColorCode[]): string {
-  if (colorIdentity.length === 0) return "Farblos";
-  const key = colorIdentity.join("");
-  return COMBO_NAMES[key] ?? `${colorIdentity.length}-Farben`;
+  if (colorIdentity.length === 0) return "Colorless";
+  const key = COLOR_ORDER.filter((c) => colorIdentity.includes(c)).join("");
+  return COMBO_NAMES[key] ?? `${colorIdentity.length}-Color`;
 }
 
 export const FONT_STACK =

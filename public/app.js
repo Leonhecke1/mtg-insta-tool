@@ -31,7 +31,7 @@ generateBtn.addEventListener("click", async () => {
 
   generateBtn.disabled = true;
   generateStatus.textContent =
-    "Generiere Slides... (Puppeteer + Scryfall" + (useLlm ? " + LLM" : "") + ", kann etwas dauern)";
+    "Generating slides... (Puppeteer + Scryfall" + (useLlm ? " + LLM" : "") + ", may take a moment)";
 
   try {
     const res = await fetch("/api/jobs", {
@@ -40,11 +40,11 @@ generateBtn.addEventListener("click", async () => {
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Unbekannter Fehler");
+    if (!res.ok) throw new Error(data.error || "Unknown error");
     generateStatus.textContent = `Job ${data.id}: Status "${data.status}"`;
     await refreshJobs();
   } catch (err) {
-    generateStatus.textContent = "Fehler: " + err.message;
+    generateStatus.textContent = "Error: " + err.message;
   } finally {
     generateBtn.disabled = false;
   }
@@ -52,9 +52,9 @@ generateBtn.addEventListener("click", async () => {
 
 function statusLabel(status) {
   const map = {
-    generating: "Wird generiert...",
-    ready: "Fertig",
-    failed: "Fehlgeschlagen",
+    generating: "Generating...",
+    ready: "Done",
+    failed: "Failed",
   };
   return map[status] || status;
 }
@@ -91,34 +91,34 @@ function jobCard(job, version) {
       const kind = (job.slideKinds || [])[i];
       const editable = EDITABLE_KINDS.has(kind);
       return `<img src="${url}?v=${version}" alt="slide" ${
-        editable ? `class="editable" data-job="${job.id}" data-kind="${kind}" title="Text bearbeiten"` : ""
+        editable ? `class="editable" data-job="${job.id}" data-kind="${kind}" title="Edit text"` : ""
       } />`;
     })
     .join("");
 
   const deck = job.deckSummary
-    ? `${job.deckSummary.commander} &middot; ${job.deckSummary.cardCount} Karten &middot; ${job.deckSummary.colorIdentity.join("")}`
+    ? `${job.deckSummary.commander} &middot; ${job.deckSummary.cardCount} cards &middot; ${job.deckSummary.colorIdentity.join("")}`
     : "";
 
   const fallbackNote =
     job.usedFallbackNames && job.usedFallbackNames.length > 0
-      ? `<div class="fallback-note">Scryfall war fuer ${job.usedFallbackNames.length} Karte(n) nicht erreichbar - Moxfield/Archidekt-Daten als Fallback genutzt.</div>`
+      ? `<div class="fallback-note">Scryfall was unreachable for ${job.usedFallbackNames.length} card(s) - used Moxfield/Archidekt data as fallback.</div>`
       : "";
 
   const actions = [];
   if (job.zipUrl) {
-    actions.push(`<a class="zip-link" href="${job.zipUrl}" download>ZIP herunterladen</a>`);
+    actions.push(`<a class="zip-link" href="${job.zipUrl}" download>Download ZIP</a>`);
   }
   if (job.captionUrl) {
     actions.push(`<a href="${job.captionUrl}" target="_blank">caption.txt</a>`);
   }
   if (job.status === "ready") {
-    actions.push(`<button type="button" data-edit-caption data-job="${job.id}">Caption bearbeiten</button>`);
+    actions.push(`<button type="button" data-edit-caption data-job="${job.id}">Edit Caption</button>`);
   }
 
   el.innerHTML = `
     <div class="job-header">
-      <button type="button" class="collapse-toggle" data-toggle-collapse data-job="${job.id}" title="Ein-/Ausblenden">${
+      <button type="button" class="collapse-toggle" data-toggle-collapse data-job="${job.id}" title="Show/Hide">${
         isCollapsed ? "▸" : "▾"
       }</button>
       <span class="badge status-${job.status}">${statusLabel(job.status)}</span>
@@ -195,8 +195,8 @@ function modalShell(title, bodyHtml) {
         <h3>${title}</h3>
         <div class="modal-body">${bodyHtml}</div>
         <div class="modal-actions">
-          <button type="button" id="modal-cancel">Abbrechen</button>
-          <button type="button" id="modal-save" class="primary">Speichern &amp; neu rendern</button>
+          <button type="button" id="modal-cancel">Cancel</button>
+          <button type="button" id="modal-save" class="primary">Save &amp; re-render</button>
         </div>
         <p id="modal-status"></p>
       </div>
@@ -212,7 +212,7 @@ async function saveTexts(jobId, patch) {
   const statusEl = document.getElementById("modal-status");
   const saveBtn = document.getElementById("modal-save");
   saveBtn.disabled = true;
-  statusEl.textContent = "Rendere neu...";
+  statusEl.textContent = "Re-rendering...";
   try {
     const res = await fetch(`/api/jobs/${jobId}/texts`, {
       method: "POST",
@@ -220,22 +220,28 @@ async function saveTexts(jobId, patch) {
       body: JSON.stringify(patch),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Unbekannter Fehler");
+    if (!res.ok) throw new Error(data.error || "Unknown error");
     closeModal();
     await refreshJobs();
   } catch (err) {
-    statusEl.textContent = "Fehler: " + err.message;
+    statusEl.textContent = "Error: " + err.message;
     saveBtn.disabled = false;
   }
 }
 
 function openCoverEditor(jobId, texts) {
   modalShell(
-    "Cover-Tagline bearbeiten",
-    `<label>Tagline<textarea id="f-tagline" rows="2">${escapeHtml(texts.tagline)}</textarea></label>`
+    "Edit Cover",
+    `
+    <label>Flavor badge<input id="f-flavor" type="text" value="${escapeHtml(texts.flavor)}" /></label>
+    <label>Tagline<textarea id="f-tagline" rows="2">${escapeHtml(texts.tagline)}</textarea></label>
+    `
   );
   document.getElementById("modal-save").addEventListener("click", () => {
-    saveTexts(jobId, { tagline: document.getElementById("f-tagline").value });
+    saveTexts(jobId, {
+      flavor: document.getElementById("f-flavor").value,
+      tagline: document.getElementById("f-tagline").value,
+    });
   });
 }
 
@@ -243,14 +249,14 @@ function openGameplanEditor(jobId, texts) {
   const paragraphs = texts.gameplan.paragraphs.join("\n\n");
   const [s1, s2, s3] = texts.gameplan.steps;
   modalShell(
-    "Gameplan bearbeiten",
+    "Edit Gameplan",
     `
-    <label>Absaetze (Leerzeile = neuer Absatz)
+    <label>Paragraphs (blank line = new paragraph)
       <textarea id="f-paragraphs" rows="8">${escapeHtml(paragraphs)}</textarea>
     </label>
-    <label>Schritt 01<input id="f-step1" type="text" value="${escapeHtml(s1 || "")}" /></label>
-    <label>Schritt 02<input id="f-step2" type="text" value="${escapeHtml(s2 || "")}" /></label>
-    <label>Schritt 03<input id="f-step3" type="text" value="${escapeHtml(s3 || "")}" /></label>
+    <label>Step 01<input id="f-step1" type="text" value="${escapeHtml(s1 || "")}" /></label>
+    <label>Step 02<input id="f-step2" type="text" value="${escapeHtml(s2 || "")}" /></label>
+    <label>Step 03<input id="f-step3" type="text" value="${escapeHtml(s3 || "")}" /></label>
     `
   );
   document.getElementById("modal-save").addEventListener("click", () => {
@@ -274,10 +280,10 @@ function openGameplanEditor(jobId, texts) {
 
 function openCaptionEditor(jobId, texts) {
   modalShell(
-    "Caption bearbeiten",
+    "Edit Caption",
     `
     <label>Text<textarea id="f-body" rows="4">${escapeHtml(texts.caption.body)}</textarea></label>
-    <label>Hashtags (mit Leerzeichen getrennt)
+    <label>Hashtags (space-separated)
       <input id="f-hashtags" type="text" value="${escapeHtml(texts.caption.hashtags.join(" "))}" />
     </label>
     `
@@ -293,11 +299,11 @@ function openCaptionEditor(jobId, texts) {
 }
 
 async function openEditModal(jobId, kind) {
-  modalShell("Laedt...", "");
+  modalShell("Loading...", "");
   const res = await fetch(`/api/jobs/${jobId}`);
   const data = await res.json();
   if (!res.ok || !data.texts) {
-    modalShell("Fehler", `<p>${escapeHtml(data.error || "Texte nicht gefunden")}</p>`);
+    modalShell("Error", `<p>${escapeHtml(data.error || "Texts not found")}</p>`);
     return;
   }
   if (kind === "cover") openCoverEditor(jobId, data.texts);
