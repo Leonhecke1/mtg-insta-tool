@@ -42,7 +42,7 @@ export function getJob(id: string): Job | undefined {
 }
 
 export function listJobs(): Job[] {
-  return [...getDb().get("jobs").value()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return [...getDb().get("jobs").value()].sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")));
 }
 
 /** Beim Start aufrufen, damit die Bereinigung sofort laeuft */

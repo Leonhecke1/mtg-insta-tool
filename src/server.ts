@@ -116,7 +116,16 @@ function toSummary(job: Job) {
 }
 
 app.get("/api/jobs", (_req, res) => {
-  res.json(listJobs().map(toSummary));
+  // Ein kaputter Job darf nicht die ganze Liste leeren
+  const out = [];
+  for (const job of listJobs()) {
+    try {
+      out.push(toSummary(job));
+    } catch (err) {
+      console.error(`[jobs] Job ${job.id} nicht lesbar:`, err instanceof Error ? err.message : err);
+    }
+  }
+  res.json(out);
 });
 
 app.get("/api/jobs/:id", (req, res) => {

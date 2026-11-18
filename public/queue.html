@@ -357,8 +357,10 @@ window.addEventListener("tasks-done", () => load(true));
 
 (async () => {
   const jobs = await api("GET", "/api/jobs");
-  document.getElementById("jobSel").innerHTML = jobs.filter((j) => j.status === "ready")
-    .map((j) => `<option value="${j.id}">${esc(j.deckSummary?.commander || j.id)}</option>`).join("");
+  const ready = jobs.filter((j) => j.status === "ready");
+  document.getElementById("jobSel").innerHTML = ready.length
+    ? ready.map((j) => `<option value="${j.id}">${esc(j.deckSummary?.commander || j.id)}</option>`).join("")
+    : `<option value="">Noch kein fertiges Deck – oben „Neues Deck“ tippen</option>`;
   // Vorbelegung: naechster Tag ohne Deck-Post (News zaehlen nicht), Uhrzeit aus dem Wochenplan
   const [queue, settings] = await Promise.all([api("GET", "/api/queue"), api("GET", "/api/settings/app").catch(() => null)]);
   const dayKey = (x) => x.getFullYear() + "-" + x.getMonth() + "-" + x.getDate();
@@ -400,9 +402,7 @@ document.getElementById("addBtn").onclick = async () => {
     } catch (err) {
       if (err.status !== 409 || !err.data || !err.data.conflict) throw err;
       // Doppelter Deck-Post: nachfragen und nur auf Wunsch trotzdem anlegen
-      if (!confirm(err.message + "
-
-Trotzdem anlegen?")) {
+      if (!confirm(err.message + "\n\nTrotzdem anlegen?")) {
         document.getElementById("addErr").textContent = "Nicht angelegt. Anderen Tag wählen?";
         return;
       }
