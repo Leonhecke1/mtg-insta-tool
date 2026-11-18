@@ -716,7 +716,55 @@ export function reelCoverPath(videoFile: string): string {
  */
 /** Ob eine Sprachausgabe (Piper oder Dia) konfiguriert ist */
 export function ttsEnabled(): boolean {
-  return diaEnabled() || Boolean(config.piperBin && config.piperModel);
+  return diaEnabled() || voiceStudioEnabled() || Boolean(config.piperBin && config.piperModel);
+}
+
+function voiceStudioEnabled(): boolean {
+  return config.ttsEngine === "voicestudio";
+}
+
+/**
+ * VoiceStudio (github.com/debpalash/VoiceStudio): eigener Dienst (Docker) auf dem
+ * Server, OpenAI-kompatibel. Ein Aufruf pro Szene; dieselbe Stimmprofil-ID sorgt
+ * fuer dieselbe Stimme in allen Szenen und Reels.
+ */
+async function synthesizeVoiceStudio(
+  texts: string[],
+  dir: string,
+  prefix: string,
+  report: (step: string, p?: number) => void
+): Promise<({ file: string; seconds: number } | null)[]> {
+  const out: ({ file: string; seconds: number } | null)[] = [];
+  const url = config.voiceStudioUrl.replace(/\/+$/, "") + "/v1/audio/speech";
+  for (let i = 0; i < texts.length; i++) {
+    report(`Sprachaufnahme (VoiceStudio) ${i + 1}/${texts.length}`, (i / texts.length) * 0.08);
+    if (!texts[i]) {
+      out.push(null);
+      continue;
+    }
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(config.voiceStudioApiKey ? { Authorization: `Bearer ${config.voiceStudioApiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: config.voiceStudioModel,
+        voice: config.voiceStudioVoice,
+        input: texts[i],
+        response_format: "wav",
+        speed: config.voiceStudioSpeed,
+        language: "en",
+        ...(config.voiceStudioInstructions ? { instructions: config.voiceStudioInstructions } : {}),
+      }),
+      signal: AbortSignal.timeout(config.voiceStudioTimeoutSec * 1000),
+    });
+    if (!res.ok) throw new Error(`VoiceStudio ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const file = path.join(dir, `${prefix}${i}.wav`);
+    fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+    out.push({ file, seconds: await wavSeconds(file) });
+  }
+  return out;
 }
 
 function diaEnabled(): boolean {
@@ -744,6 +792,13 @@ export async function synthesizeVoices(
   report: (step: string, p?: number) => void = () => undefined
 ): Promise<({ file: string; seconds: number } | null)[]> {
   if (!ttsEnabled() || !ffmpegPath) return texts.map(() => null);
+  if (voiceStudioEnabled()) {
+    try {
+      return await synthesizeVoiceStudio(texts, dir, prefix, report);
+    } catch (err) {
+      console.warn(`[tts] VoiceStudio fehlgeschlagen, nutze Piper: ${err instanceof Error ? err.message : err}`);
+    }
+  }
   if (diaEnabled()) {
     try {
       return await synthesizeDia(texts, dir, prefix, report);

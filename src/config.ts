@@ -57,6 +57,19 @@ export const config = {
   // Max. Dauer fuer alle Sprachaufnahmen eines Reels (Minuten); CPU ist langsam
   diaTimeoutMin: parseFloat(optional("DIA_TIMEOUT_MIN", "20")),
 
+  // --- VoiceStudio (github.com/debpalash/VoiceStudio, lokal per Docker) ---
+  // TTS_ENGINE=voicestudio; OpenAI-kompatibler Endpunkt /v1/audio/speech
+  voiceStudioUrl: optional("VOICESTUDIO_URL", "http://127.0.0.1:3900"),
+  voiceStudioModel: optional("VOICESTUDIO_MODEL", "omnivoice"),
+  // Stimmprofil-ID oder -Name aus VoiceStudio (z. B. eine geklonte/entworfene Stimme)
+  voiceStudioVoice: optional("VOICESTUDIO_VOICE", "default"),
+  // nur noetig, wenn VoiceStudio nicht auf demselben Rechner (loopback) laeuft
+  voiceStudioApiKey: optional("VOICESTUDIO_API_KEY"),
+  voiceStudioSpeed: parseFloat(optional("VOICESTUDIO_SPEED", "1.0")),
+  // Sprechstil, z. B. "friendly, energetic, conversational"
+  voiceStudioInstructions: optional("VOICESTUDIO_INSTRUCTIONS"),
+  voiceStudioTimeoutSec: parseFloat(optional("VOICESTUDIO_TIMEOUT_SEC", "300")),
+
   // --- Taeglicher Deck-Post (Entwuerfe aus Archidekt) ---
   dailyDecks: optional("DAILY_DECKS", "false") === "true",
   dailyPostHour: parseInt(optional("DAILY_POST_HOUR", "19"), 10),
