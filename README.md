@@ -351,7 +351,7 @@ Typ „Combo-Reel“ im Wochenplan oder unter „Eigenen Post einplanen“ (Spel
 Code: `src/combos/spellbook.ts` (API + Auswahl), `src/combos/comboDraft.ts` (Entwurf), `src/render/comboReel.ts` (Video).
 Der Sprechtext läuft wie bei Deck-Reels durch `src/skills/ttsText.ts` und die Aussprache-Regeln.
 
-Look und Schnitt nach dem `/stick-figure`-Skill aus
+Gilt für Deck- und Combo-Reels (gemeinsam in `src/render/reelStyle.ts`), ohne Textboxen. Look und Schnitt nach dem `/stick-figure`-Skill aus
 [claude-animation-skills](https://github.com/artemnovitckii/claude-animation-skills) (MIT), fest im Renderer
 eingebaut, damit es ohne Claude auf dem Server läuft: Wischübergänge mit Bewegungsunschärfe, Handkamera-Drift,
 Aufprall mit Strahlen, Wackeln und Blitz beim ×∞, Vignette und Körnung, Untertitel mit 1–2 Wörtern.

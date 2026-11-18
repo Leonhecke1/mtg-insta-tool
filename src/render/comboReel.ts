@@ -11,6 +11,7 @@ import { ColorCode } from "../types";
 import { manaToWords, reelCoverPath, speakable, synthesizeVoices } from "./reel";
 import { humanize } from "../skills/human";
 import { buildSoundtrack, Cue } from "./sound";
+import { audioArgs, LAND, STYLE_HTML, STYLE_JS, styleCss } from "./reelStyle";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const ffmpegPath: string | null = require("ffmpeg-static");
@@ -70,7 +71,6 @@ const NUM = ["zero", "One", "Two", "Three", "Four", "Five"];
 const INF_AT = 1.4; // Ergebnis: Zaehler springt auf unendlich
 const FAN_AT = 0.1; // Hook: erste Karte fliegt ein
 const FAN_STEP = 0.15;
-const LAND = 0.32; // ab Start einer Animation, bis sie "landet" (easeOutBack-Spitze)
 
 /** Ton-Cues und Aufprall-Momente aus der Zeitachse */
 function soundCues(beats: TimedBeat[], ncards: number): { cues: Cue[]; impacts: [number, number][]; resolveAt: number } {
@@ -81,7 +81,7 @@ function soundCues(beats: TimedBeat[], ncards: number): { cues: Cue[]; impacts: 
     if (i > 0) cues.push({ at: b.start - 0.22, kind: "whoosh" }); // Wischuebergang
     switch (b.kind) {
       case "hook":
-        for (let k = 0; k < ncards; k++) cues.push({ at: b.start + FAN_AT + k * FAN_STEP + LAND, kind: "pop", gain: 0.8 + 0.1 * k });
+        for (let k = 0; k < ncards; k++) cues.push({ at: b.start + Math.max(0.05, FAN_AT + k * FAN_STEP + LAND - 0.35), kind: "pop", gain: 0.8 + 0.1 * k });
         cues.push({ at: b.start + 0.05, kind: "sparkle", gain: 0.6 });
         break;
       case "piece":
@@ -242,9 +242,7 @@ function pageHtml(c: Combo, beats: TimedBeat[], total: number, hookScreen: strin
   html, body { margin: 0; width: ${W}px; height: ${H}px; overflow: hidden; background: #111; color: #fff; font-family: ${FONT}; }
   #bg { position: absolute; inset: -120px; background: url('${escapeHtml(bg)}') center/cover; filter: blur(50px) saturate(1.3) brightness(.5); }
   #shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(10,10,12,.5), rgba(10,10,12,.15) 40%, rgba(10,10,12,.75)); }
-  /* Sichere Zone wie bei den Deck-Reels */
-  #stage { position: absolute; left: 0; top: 0; width: ${W}px; height: ${H}px; transform-origin: 50% 0; transform: translateY(122px) scale(0.85); }
-  .beat { position: absolute; inset: 0; opacity: 0; }
+  ${styleCss(accent)}
   .anim { will-change: transform, opacity; }
   .chip { position: absolute; top: 130px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 40px; font-weight: 900; letter-spacing: 3px;
           padding: 12px 30px; border-radius: 16px; background: rgba(0,0,0,.6); border: 4px solid ${accent}; color: #fff; }
@@ -256,117 +254,38 @@ function pageHtml(c: Combo, beats: TimedBeat[], total: number, hookScreen: strin
   .card.mid { width: 400px; }
   .card.small { width: 300px; }
   .center { position: absolute; left: 0; right: 0; top: 230px; display: flex; justify-content: center; }
-  .key { position: absolute; left: 80px; right: 80px; top: 1060px; font-size: 40px; line-height: 1.3; font-weight: 700; color: #1F1D18;
-         background: ${accent}; padding: 20px 28px; border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,.5); }
   .fan { position: absolute; left: 0; right: 0; top: 620px; height: 700px; }
   .fan.small { top: 330px; }
   .fanc { position: absolute; left: 50%; top: 0; margin-left: -200px; }
   .fan.small .fanc { margin-left: -150px; }
-  .steps { position: absolute; left: 60px; right: 60px; top: 250px; display: grid; gap: 18px; }
-  .step { display: flex; align-items: center; gap: 18px; background: rgba(0,0,0,.55); border-radius: 22px; padding: 16px 20px; border: 2px solid rgba(255,255,255,.12); }
-  .step .no { flex: none; width: 70px; height: 70px; border-radius: 50%; background: ${accent}; color: #1F1D18; font-size: 40px; font-weight: 900; display: flex; align-items: center; justify-content: center; }
-  .step img { flex: none; width: 90px; border-radius: 6px; }
-  .step .tx { font-size: 32px; line-height: 1.25; font-weight: 600; }
   .inf { position: absolute; left: 0; right: 0; top: 200px; text-align: center; font-size: 150px; font-weight: 900; color: #FFD84A; -webkit-text-stroke: 4px #000; paint-order: stroke fill; }
   .counter { position: absolute; right: 70px; top: 120px; font-size: 64px; font-weight: 900; color: ${accent}; text-shadow: 0 6px 30px rgba(0,0,0,.7); }
   .res { position: absolute; left: 70px; right: 70px; top: 420px; display: grid; gap: 24px; text-align: center; }
   .res div { font-size: 66px; line-height: 1.1; font-weight: 900; text-shadow: 0 8px 40px rgba(0,0,0,.7); }
   .res div:first-child { color: ${accent}; font-size: 80px; }
-  .need { position: absolute; left: 90px; right: 90px; top: 1000px; font-size: 38px; line-height: 1.3; text-align: center; background: rgba(0,0,0,.5); padding: 20px 28px; border-radius: 20px; }
   .price { position: absolute; left: 0; right: 0; top: 520px; text-align: center; font-size: 230px; font-weight: 900; color: ${accent}; font-variant-numeric: tabular-nums; text-shadow: 0 10px 60px rgba(0,0,0,.6); }
   .sub { position: absolute; left: 0; right: 0; top: 820px; text-align: center; font-size: 42px; font-weight: 600; color: rgba(255,255,255,.85); }
   .pill { position: absolute; left: 0; right: 0; top: 1060px; margin: 0 auto; width: fit-content; font-size: 50px; font-weight: 900; color: #1F1D18; background: ${accent}; padding: 20px 40px; border-radius: 999px; }
-  /* Stil nach /stick-figure (claude-animation-skills): Burst, Blitz, Vignette, Koernung */
-  .burst { position: absolute; left: 50%; top: 330px; width: 1400px; height: 1400px; margin-left: -700px; margin-top: -700px; border-radius: 50%; opacity: 0;
-           background: repeating-conic-gradient(from 0deg, ${accent}cc 0deg 7deg, transparent 7deg 20deg);
-           -webkit-mask: radial-gradient(circle, transparent 18%, #000 30%, transparent 70%); mask: radial-gradient(circle, transparent 18%, #000 30%, transparent 70%); }
-  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
-  #vig { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 70% 60% at 50% 47%, rgba(0,0,0,0) 55%, rgba(10,5,20,.45) 100%); }
-  #grain { position: absolute; inset: -256px; pointer-events: none; mix-blend-mode: overlay; opacity: .09; }
-  /* Untertitel: 1-2 Woerter, klein geschrieben, weiss mit dunkler Kontur, poppen auf */
-  #cap { position: absolute; left: 40px; right: 40px; top: 1255px; text-align: center; font-size: 76px; line-height: 1.1; font-weight: 900; color: #fff;
-         -webkit-text-stroke: 14px #111; paint-order: stroke fill; text-shadow: 0 6px 20px rgba(0,0,0,.55); transform-origin: 50% 50%; }
 </style></head><body>
-  <svg width="0" height="0" style="position:absolute"><filter id="hb" x="-20%" y="0" width="140%" height="100%"><feGaussianBlur id="hbd" stdDeviation="0 0"/></filter></svg>
   <div id="bg"></div><div id="shade"></div>
   <div id="stage">
     ${beats.map((b) => sceneHtml(b, c, hookScreen)).join("\n")}
   </div>
-  <div id="vig"></div><div id="grain"></div><div id="flash"></div>
-  <div id="cap"></div>
+  ${STYLE_HTML}
 <script>
   const TOTAL = ${total};
   const BEATS = ${JSON.stringify(beats.map((b) => ({ start: b.start, dur: b.dur, cap: manaToWords(b.say), voice: b.voiceSec })))};
   // Aufprall-Momente: [Zeitpunkt, Staerke] -> Wackeln + Blitz
   const IMPACTS = ${JSON.stringify(impacts)};
-  // Untertitel: hoechstens 2 Woerter / 13 Zeichen, Bruch nach Satzzeichen, ueber die Sprechdauer verteilt
-  const capText = (s) => s.toLowerCase().replace(/[-\\u2013\\u2014]/g, " ").replace(/[^\\p{L}\\p{N}% ]/gu, "").replace(/\\s+/g, " ").trim();
-  BEATS.forEach((b) => {
-    const words = b.cap.split(/\\s+/).filter(Boolean), chunks = [];
-    let cur = [];
-    for (const w of words) {
-      if (cur.length && (cur.length >= 2 || (cur.join(" ") + " " + w).length > 13)) { chunks.push(cur.join(" ")); cur = []; }
-      cur.push(w);
-      if (/[.,:;!?]$/.test(w)) { chunks.push(cur.join(" ")); cur = []; }
-    }
-    if (cur.length) chunks.push(cur.join(" "));
-    const span = (b.voice || b.dur - 0.3), total = chunks.reduce((n, c) => n + c.length + 2, 0);
-    let at = b.start + 0.1;
-    b.chunks = chunks.map((c) => { const s = at; at += span * ((c.length + 2) / total); return { from: s, to: at, text: capText(c) }; }).filter((c) => c.text);
-  });
-  const easeIn = (t) => t * t * t;
-  const easeOut = (t) => 1 - Math.pow(1 - t, 3);
-  const easeOutBack = (t) => { const c = 1.4; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
-  const clamp = (x) => Math.max(0, Math.min(1, x));
-  const sections = [...document.querySelectorAll(".beat")];
-  const cap = document.getElementById("cap");
+  ${STYLE_JS}
   const bg = document.getElementById("bg");
-  const stage = document.getElementById("stage");
-  const flash = document.getElementById("flash");
-  const hbd = document.getElementById("hbd");
-  // Koernung: 4 Rauschkacheln, pro Bild gewechselt und verschoben
-  const grainEl = document.getElementById("grain");
-  const tiles = [0, 1, 2, 3].map((k) => {
-    const cv = document.createElement("canvas"); cv.width = cv.height = 256;
-    const g = cv.getContext("2d"), id = g.createImageData(256, 256);
-    let s = k * 9973 + 11;
-    for (let i = 0; i < id.data.length; i += 4) { s = (s * 16807) % 2147483647; const v = 128 + ((s / 2147483647) - 0.5) * 120; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; }
-    g.putImageData(id, 0, 0); return "url(" + cv.toDataURL() + ")";
-  });
-  const WT = 0.2; // halbe Wischdauer (6 Bilder)
   window.renderAt = (t) => {
-    const f = Math.round(t * 30);
     bg.style.transform = "scale(" + (1.15 - 0.1 * t / TOTAL) + ")";
-    // Kamera: Handkamera-Drift + Wackeln bei Aufprall
-    let sx = Math.sin(t * 0.9) * 6 + Math.sin(t * 2.3) * 3, sy = Math.cos(t * 0.7) * 5, rot = Math.sin(t * 0.5) * 0.35, fl = 0;
-    for (const [at, k] of IMPACTS) {
-      const d = t - at;
-      if (d < 0 || d > 0.45) continue;
-      const a = k * 28 * Math.exp(-d * 9);
-      sx += Math.sin(d * 95) * a; sy += Math.cos(d * 77) * a * 0.7; rot += Math.sin(d * 60) * k * 0.8 * Math.exp(-d * 9);
-      fl = Math.max(fl, k * 0.75 * Math.exp(-d * 10));
-    }
-    flash.style.opacity = String(fl);
-    grainEl.style.backgroundImage = tiles[f % 4];
-    grainEl.style.transform = "translate(" + ((f * 37) % 256) + "px," + ((f * 91) % 256) + "px)";
-    let blurPx = 0;
-    sections.forEach((sec, i) => {
-      const start = +sec.dataset.start, dur = +sec.dataset.dur, lt = t - start;
-      const visible = lt >= 0 && (lt < dur || (i === sections.length - 1 && lt <= dur));
-      sec.style.opacity = visible ? "1" : "0";
-      if (!visible) { sec.style.filter = "none"; return; }
-      // Wischuebergang: alte Szene fliegt mit Bewegungsunschaerfe links raus, neue kommt von rechts
-      let dx = 0;
-      if (i < sections.length - 1 && lt > dur - WT) { const p = easeIn((lt - (dur - WT)) / WT); dx = -p * 420; blurPx = p * 40; }
-      if (i > 0 && lt < WT) { const p = 1 - easeOut(lt / WT); dx = p * 420; blurPx = p * 40; }
-      const push = 1 + 0.035 * clamp(lt / dur); // langsames Hineinzoomen
-      stage.style.transform = "translateY(122px) scale(0.85) translate(" + (sx + dx) + "px," + sy + "px) rotate(" + rot + "deg) scale(" + push + ")";
-      sec.style.filter = blurPx > 0.5 ? "url(#hb)" : "none";
-      sec.querySelectorAll(".burst").forEach((el) => {
-        const d = lt - (+el.dataset.at || 0);
-        el.style.opacity = d < 0 ? "0" : String(0.9 * Math.exp(-d * 2.2));
-        el.style.transform = "scale(" + (0.4 + 1.4 * easeOut(clamp(d / 0.6))) + ") rotate(" + d * 25 + "deg)";
-      });
+    const shown = styleFrame(t, true);
+    if (!shown) return;
+    const { sec, i: si, lt: lt0, dur } = shown;
+    const lt = si === 0 ? lt0 + 0.35 : lt0;
+    {
       sec.querySelectorAll(".anim").forEach((el) => {
         const d = +(el.dataset.d || 0), p = clamp((lt - d) / 0.5);
         const e = easeOutBack(p), o = easeOut(clamp((lt - d) / 0.3));
@@ -388,15 +307,7 @@ function pageHtml(c: Combo, beats: TimedBeat[], total: number, hookScreen: strin
         const k = Math.floor(lt / 0.25) + 1;
         el.textContent = lt > ${INF_AT} ? "×∞" : "×" + k;
       });
-    });
-    hbd.setAttribute("stdDeviation", blurPx.toFixed(1) + " 0");
-    const cur = BEATS.find((b) => t >= b.start && t < b.start + b.dur) || BEATS[BEATS.length - 1];
-    const chunk = [...cur.chunks].reverse().find((c) => t >= c.from);
-    // nach dem Satz keine stehengebliebenen Woerter
-    const txt = chunk && t < chunk.to + 0.35 ? chunk.text : "";
-    if (cap.textContent !== txt) cap.textContent = txt;
-    const k = chunk ? clamp((t - chunk.from) / 0.1) : 1;
-    cap.style.transform = "scale(" + (0.82 + 0.18 * easeOutBack(k)) + ")";
+    }
   };
   window.assetsReady = () => Promise.all([...document.images].map((img) => img.complete ? Promise.resolve() : new Promise((r) => { img.onload = img.onerror = r; })));
 </script></body></html>`;
@@ -437,38 +348,8 @@ export async function buildComboReel(
   buildSoundtrack(cues, total, resolveAt, sfxFile, musicFile);
 
   const video = path.join(dir, "reel.mp4");
-  const args = ["-y", "-f", "image2pipe", "-framerate", String(FPS), "-c:v", "mjpeg", "-i", "-", "-i", sfxFile, "-i", musicFile];
-  const st = "aresample=44100,aformat=channel_layouts=stereo";
-  const end = `apad,atrim=0:${total.toFixed(3)}`;
-  const withVoice = voices.some(Boolean);
-  if (withVoice) {
-    const ins: { idx: number; ms: number }[] = [];
-    voices.forEach((v, i) => {
-      if (!v) return;
-      args.push("-i", v.file);
-      ins.push({ idx: ins.length + 3, ms: Math.round((beats[i].start + 0.1) * 1000) });
-    });
-    const parts = ins.map((a) => `[${a.idx}:a]${st},adelay=${a.ms}|${a.ms}[a${a.idx}]`);
-    args.push(
-      "-filter_complex",
-      [
-        ...parts,
-        `${ins.map((a) => `[a${a.idx}]`).join("")}amix=inputs=${ins.length}:normalize=0,${end},asplit=2[vo][key]`,
-        `[2:a]${st},volume=0.22[mus]`,
-        // Ducking: Musik ~ -10 dB, sobald gesprochen wird
-        `[mus][key]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[mduck]`,
-        `[1:a]${st},volume=0.5[fx]`,
-        `[vo][mduck][fx]amix=inputs=3:normalize=0,alimiter=limit=0.95,${end}[a]`,
-      ].join(";"),
-      "-map", "0:v", "-map", "[a]"
-    );
-  } else {
-    args.push(
-      "-filter_complex",
-      [`[2:a]${st},volume=0.35[mus]`, `[1:a]${st},volume=0.55[fx]`, `[mus][fx]amix=inputs=2:normalize=0,alimiter=limit=0.95,${end}[a]`].join(";"),
-      "-map", "0:v", "-map", "[a]"
-    );
-  }
+  const spoken = voices.flatMap((v, i) => (v ? [{ file: v.file, at: beats[i].start + 0.1 }] : []));
+  const args = ["-y", "-f", "image2pipe", "-framerate", String(FPS), "-c:v", "mjpeg", "-i", "-", ...audioArgs(sfxFile, musicFile, spoken, total)];
   args.push("-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p", "-r", String(FPS), "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", video);
 
   const { proc: ff, done } = spawnFfmpeg(ffmpegPath, args);
