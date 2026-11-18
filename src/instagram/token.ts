@@ -39,6 +39,8 @@ const REFRESH_EVERY_MS = 7 * 24 * 3600_000;
 /** Verlaengert den Token, wenn die letzte Verlaengerung > 7 Tage her ist. */
 export async function refreshTokenIfDue(): Promise<void> {
   if (!config.igAccessToken) return;
+  // Systemnutzer-Tokens (graph.facebook.com) laufen nie ab
+  if (config.igGraphHost !== "graph.instagram.com") return;
   const stored = readStored();
   if (stored && Date.now() - new Date(stored.refreshedAt).getTime() < REFRESH_EVERY_MS) return;
 

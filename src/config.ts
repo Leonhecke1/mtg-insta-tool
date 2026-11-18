@@ -24,6 +24,10 @@ export const config = {
   igAccessToken: optional("IG_ACCESS_TOKEN"),
   // Version gegen die aktuelle Meta-Doku pruefen (siehe SPEC.md)
   igApiVersion: optional("IG_API_VERSION", "v23.0"),
+  // graph.facebook.com fuer Systemnutzer-Tokens ("API setup with Unified login",
+  // laufen nie ab), graph.instagram.com fuer Tokens aus "Instagram Login"
+  // (laufen nach 60 Tagen ab und werden automatisch verlaengert)
+  igGraphHost: optional("IG_GRAPH_HOST", "graph.facebook.com"),
   // Oeffentliche Basis-URL des Servers (ohne Slash am Ende). Instagram laedt
   // die Bilder von <PUBLIC_BASE_URL>/media/<token>/<n>.jpg.
   publicBaseUrl: optional("PUBLIC_BASE_URL").replace(/\/+$/, ""),

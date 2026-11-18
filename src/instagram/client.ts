@@ -9,7 +9,7 @@ import { getAccessToken } from "./token";
  * die API nicht an - und das wird hier bewusst auch nicht nachgebaut.
  */
 
-const base = () => `https://graph.instagram.com/${config.igApiVersion}`;
+const base = () => `https://${config.igGraphHost}/${config.igApiVersion}`;
 
 async function call<T = any>(
   method: "GET" | "POST",

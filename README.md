@@ -177,7 +177,8 @@ Antwort-Entwürfe auf neue Kommentare unter eigenen Posts an.
 
 ```
 IG_USER_ID=...            # Instagram-Professional-Account-ID
-IG_ACCESS_TOKEN=...       # Long-lived Token ("Instagram API with Instagram Login"), läuft nach 60 Tagen ab
+IG_ACCESS_TOKEN=...       # Systemnutzer-Token aus "API setup with Unified login" (läuft nie ab)
+IG_GRAPH_HOST=graph.facebook.com   # graph.instagram.com nur für Instagram-Login-Tokens (60 Tage, Auto-Refresh)
 IG_API_VERSION=v23.0      # gegen aktuelle Meta-Doku prüfen
 PUBLIC_BASE_URL=https://dein-server.de   # öffentlich erreichbar, Instagram lädt /media/<token>/<n>.jpg
 SCHEDULER_INTERVAL_SEC=60
