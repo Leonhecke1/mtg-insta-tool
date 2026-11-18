@@ -87,10 +87,9 @@ function soundCues(beats: TimedBeat[], ncards: number): { cues: Cue[]; impacts: 
       case "piece":
         cues.push({ at: b.start + 0.05 + LAND, kind: "thud" });
         impacts.push([b.start + 0.05 + LAND, 0.25]);
-        cues.push({ at: b.start + 0.6 + 0.15, kind: "tick" });
         break;
       case "step":
-        cues.push({ at: b.start + 0.3 + 0.15, kind: "pop", gain: 0.6 });
+        cues.push({ at: b.start + 0.05 + LAND, kind: "pop", gain: 0.6 });
         break;
       case "result": {
         // Riser in den Ergebnis-Moment, Ticks beim Hochzaehlen, dann Aufprall
@@ -197,15 +196,18 @@ function sceneHtml(b: TimedBeat, c: Combo, hookScreen: string): string {
       return `<section ${attrs}>
         <div class="chip anim" data-d="0" data-y="-30">HOW IT WORKS · ${b.card! + 1}/${c.cards.length}</div>
         <div class="center anim" data-d="0.05" data-s="0.9" data-y="60">${card(k.image, "hero")}</div>
-        ${b.text ? `<div class="key anim" data-d="0.6" data-y="30">${escapeHtml(manaToWords(b.text))}</div>` : ""}
       </section>`;
     }
     case "step": {
       const k = b.card != null ? c.cards[b.card] : undefined;
       return `<section ${attrs}>
         <div class="chip anim" data-d="0" data-y="-30">THE LOOP · STEP ${b.step! + 1}</div>
-        ${k?.image ? `<div class="center anim" data-d="0.05" data-s="0.92" data-x="${b.step! % 2 ? 160 : -160}">${card(k.image, "step")}</div>` : ""}
-        <div class="key anim" data-d="0.3" data-y="30">${escapeHtml(manaToWords(b.text ?? ""))}</div>
+        ${
+          k?.image
+            ? `<div class="center anim" data-d="0.05" data-s="0.92" data-x="${b.step! % 2 ? 160 : -160}">${card(k.image, "hero")}</div>`
+            : // Schritt ohne erkennbare Karte: alle Karten im Faecher
+              `<div class="fan" style="top:420px">${c.cards.map((x, i) => `<div class="fanc anim" data-d="${i * 0.1}" data-s="0.8" style="--x:${(i - (c.cards.length - 1) / 2) * 260}px;--r:${(i - (c.cards.length - 1) / 2) * 8}deg">${card(x.image, "mid")}</div>`).join("")}</div>`
+        }
       </section>`;
     }
     case "result":
@@ -214,7 +216,6 @@ function sceneHtml(b: TimedBeat, c: Combo, hookScreen: string): string {
         <div class="burst" data-at="${INF_AT}"></div>
         <div class="inf anim" data-d="0" data-s="0.4" data-loop="1">×1</div>
         <div class="res anim" data-d="0.1" data-s="0.8">${c.results.slice(0, 3).map((r) => `<div>${escapeHtml(r)}</div>`).join("")}</div>
-        ${c.prerequisites[0] ? `<div class="need anim" data-d="0.6" data-y="30"><b>You need:</b> ${escapeHtml(c.prerequisites[0])}</div>` : ""}
       </section>`;
     case "price":
       return `<section ${attrs}>
