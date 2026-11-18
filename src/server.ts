@@ -17,6 +17,7 @@ import {
   updateItem,
 } from "./queue/queueStore";
 import { mediaUrls, startScheduler } from "./queue/scheduler";
+import { fetchNextDeck } from "./sourcing/dailyDeck";
 import * as fs from "fs";
 
 const app = express();
@@ -299,6 +300,14 @@ app.patch("/api/queue/:id", (req, res) => {
   // Jede inhaltliche Aenderung braucht eine neue Freigabe
   if (item.status !== "draft") patch.status = "draft";
   res.json(toQueueSummary(updateItem(item.id, patch)!));
+});
+
+app.post("/api/queue/fetch-deck", async (_req, res) => {
+  try {
+    res.json(await fetchNextDeck());
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 app.post("/api/queue/approve-all", (_req, res) => {

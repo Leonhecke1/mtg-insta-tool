@@ -33,6 +33,8 @@
 <div class="wrap">
   <div class="bar">
     <button class="primary" id="approveAll">Alle Entwürfe freigeben</button>
+    <button id="fetchDeck">Neues Deck holen</button>
+    <span id="fetchMsg" class="meta"></span>
     <label><input type="checkbox" id="showDone" /> Erledigte anzeigen</label>
   </div>
 
@@ -129,6 +131,21 @@ document.getElementById("approveAll").onclick = async () => {
   load();
 };
 document.getElementById("showDone").onchange = load;
+document.getElementById("fetchDeck").onclick = async () => {
+  const btn = document.getElementById("fetchDeck");
+  const msg = document.getElementById("fetchMsg");
+  btn.disabled = true;
+  msg.textContent = "Suche und rendere Deck … (bis zu 2 Minuten)";
+  try {
+    const r = await api("POST", "/api/queue/fetch-deck");
+    msg.textContent = r.label + " für " + new Date(r.scheduledAt).toLocaleDateString("de-DE") + " angelegt.";
+    load();
+  } catch (err) {
+    msg.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 (async () => {
   const jobs = await api("GET", "/api/jobs");
