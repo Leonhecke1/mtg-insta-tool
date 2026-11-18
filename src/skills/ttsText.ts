@@ -31,7 +31,8 @@ const ABBREVIATIONS: [RegExp, string][] = [
 
 /** Woerter, an denen ein zu langer Satz geteilt werden darf (", and ..." -> ". And ...") */
 const SPLIT_AT = /,\s+(and then|and|then|but|so|because|while|until|which means)\s+/gi;
-const MAX_SENTENCE = 110;
+// Erst sehr lange Saetze teilen: zu viele kurze Saetze klingen abgehackt
+const MAX_SENTENCE = 170;
 
 function splitLong(sentence: string): string[] {
   if (sentence.length <= MAX_SENTENCE) return [sentence];
@@ -44,7 +45,7 @@ function splitLong(sentence: string): string[] {
     if (!best || Math.abs(at - mid) < Math.abs(best.at - mid)) best = { at, len: m[0].length, word: m[1] };
   }
   if (!best) {
-    if (sentence.length <= 160) return [sentence]; // Kommas reichen als Pause
+    if (sentence.length <= 220) return [sentence]; // Kommas reichen als Pause
     // Notfalls am mittleren Komma teilen
     const commas = [...sentence.matchAll(/,\s+/g)].map((m) => m.index ?? 0).filter((i) => i > 30 && sentence.length - i > 30);
     if (!commas.length) return [sentence];
@@ -59,7 +60,8 @@ function splitLong(sentence: string): string[] {
 }
 
 export function optimizeForSpeech(text: string): string {
-  let t = text;
+  // Kommazahlen schuetzen ("4.5" -> "4 point 5"), sonst wird daran der Satz geteilt
+  let t = text.replace(/(\d)\.(\d)/g, "$1 point $2");
   for (const [re, rep] of ABBREVIATIONS) t = t.replace(re, rep);
   t = t
     // Klammern: als eingeschobene Pause sprechen
@@ -68,8 +70,8 @@ export function optimizeForSpeech(text: string): string {
     .replace(/\s+[—–-]\s+/g, ", ")
     .replace(/(?:…|\.{3})\s+(?=[A-Z])/g, ". ")
     .replace(/…|\.{3}/g, ",")
-    // "Here's how it wins: go wide" -> zwei Saetze (der Doppelpunkt wuerde sonst verschluckt)
-    .replace(/:\s+/g, ". ")
+    // Doppelpunkt als kurze Pause (Komma) statt Satzende, sonst klingt es abgehackt
+    .replace(/:\s+/g, ", ")
     // GROSSSCHRIFT (ausser kurzen Abkuerzungen) normal sprechen
     .replace(/\b[A-Z]{5,}\b/g, (w) => w.charAt(0) + w.slice(1).toLowerCase())
     // Satzzeichen aufraeumen

@@ -13,6 +13,7 @@ import { analyzeDeck, cardRole, DeckAnalysis, shortName } from "../llm/fallback"
 const ENGINE_INTRO: Record<number, string> = { 1: "One card makes it work.", 2: "Two cards make it work.", 3: "Three cards make it work." };
 import { applyPronunciation } from "../settings/pronunciation";
 import { optimizeForSpeech } from "../skills/ttsText";
+import { end, lcFirst } from "../skills/narration";
 import { getSettings } from "../settings/appSettings";
 import { escapeHtml } from "./components";
 import { FONT_STACK, MANA_CIRCLE_COLORS } from "./theme";
@@ -139,6 +140,16 @@ export function speakable(s: string): string {
     .trim();
 }
 
+/**
+ * Faehigkeit als gesprochener Satz. Aktivierte Faehigkeiten ("{T}, Tap ten Elves: Each
+ * opponent loses 10 life") klingen vorgelesen holprig -> "And if you activate its ability, ..."
+ */
+function spokenAbility(ab: string, i: number): string {
+  const act = ab.match(/^[^.]*?(?:\{[^}]+\}|\btap\b|\bsacrifice\b)[^.:]*:\s*(.+)$/i);
+  if (act) return `${i === 0 ? "If" : "And if"} you activate its ability, ${lcFirst(act[1])}`;
+  return i === 0 ? ab : `On top of that, ${lcFirst(ab)}`;
+}
+
 export function reelScript(deck: Deck, hookOverride?: string, length: "short" | "full" = getSettings().reelLength): ReelScript {
   const a = analyzeDeck(deck);
   const seed = deck.commanders.map((c) => c.name).join("|");
@@ -190,8 +201,9 @@ export function reelScript(deck: Deck, hookOverride?: string, length: "short" | 
       kind: "commander",
       base: 4,
       say: abilitiesSpoken.length
-        ? `Meet ${a.name}. ${abilitiesSpoken.join(". ")}.`
-        : `Meet ${a.name}, ${a.combo} ${a.style}.`,
+        ? // Faehigkeiten mit Ueberleitung verbinden statt Stichpunkte
+          `So this is ${a.name}. ${abilitiesSpoken.map((ab, i) => end(spokenAbility(ab, i))).join(" ")}`
+        : `So this is ${a.name}, a ${a.combo} ${a.style} commander.`,
     },
   ];
   // Spielplan: Schritte ohne Klammer-Zusaetze ("Ramp (6 sources)" -> "ramp")
@@ -199,44 +211,51 @@ export function reelScript(deck: Deck, hookOverride?: string, length: "short" | 
     const plain = st.replace(/\s*\([^)]*\)/g, "");
     return plain.charAt(0).toLowerCase() + plain.slice(1);
   });
-  beats.push({ kind: "plan", base: 3.4, say: `Here's how it wins: ${planSpoken[0]}, ${planSpoken[1]}, then ${planSpoken[2]}.` });
+  beats.push({ kind: "plan", base: 3.4, say: `The game plan is pretty simple. You ${planSpoken[0]}, ${planSpoken[1]}, and then you ${planSpoken[2]}.` });
 
   if (a.keyCards.length) {
     // Kurznamen ("Toxrill" statt "Toxrill, the Corrosive") und je ein Satz, was die Karte tut.
     // Beim nummerierten Hook loest #3 die offene Frage auf.
     const nm = (c: (typeof a.keyCards)[number]) => shortName(c.name.split(" // ")[0]);
     const ORD = ["Number one", "Number two", "And number three"];
+    // Warum die Karte zur Engine gehoert (Bezug zum Commander), siehe src/llm/engine.ts
+    const whyRaw = (c: (typeof a.keyCards)[number]) => a.engineWhy[c.name] ?? cardRole(c);
+    // gleiche Begruendung wie die Karte davor nicht wortgleich wiederholen
+    const why = (c: (typeof a.keyCards)[number]) => {
+      const i = a.keyCards.indexOf(c);
+      return i > 0 && whyRaw(a.keyCards[i - 1]) === whyRaw(c) ? "does the same job, so you have a backup" : whyRaw(c);
+    };
     const say = numberedHook
       ? a.keyCards
           .map((c, i) =>
             i === 2
-              ? `And number three, the one for ${euros(c.priceEur ?? 0)}: ${nm(c)}. It ${cardRole(c)}.`
-              : `${ORD[i]}: ${nm(c)}. It ${cardRole(c)}.`
+              ? `And number three, the one for ${euros(c.priceEur ?? 0)}, is ${nm(c)}. It ${why(c)}.`
+              : `${ORD[i]} is ${nm(c)}. It ${why(c)}.`
           )
           .join(" ")
-      : `The engine is ${["", "one card", "two cards", "three cards"][a.keyCards.length] ?? "a few cards"}. ${a.keyCards
-          .map((c, i) => `${i === a.keyCards.length - 1 && i > 0 ? "And " : ""}${nm(c)} ${cardRole(c)}.`)
+      : `So what actually makes this deck tick? ${a.keyCards
+          .map((c, i) => (i === 0 ? `${nm(c)} ${why(c)}.` : i === a.keyCards.length - 1 ? `And ${nm(c)} ${why(c)}.` : `Then there's ${nm(c)}, which ${why(c)}.`))
           .join(" ")}`;
     beats.push({ kind: "engine", base: 5.5, say });
   }
 
   const avg = a.avgManaValue.toFixed(1);
-  const pace = a.avgManaValue < 2.8 ? "so it comes down fast" : a.avgManaValue < 3.5 ? "a smooth, steady curve" : "so it plans to go big";
-  beats.push({ kind: "curve", base: 3.2, say: `The curve sits at ${avg}, ${pace}.` });
+  const pace = a.avgManaValue < 2.8 ? "so it gets going really fast" : a.avgManaValue < 3.5 ? "which gives you a nice, steady curve" : "so this deck is planning to go big";
+  beats.push({ kind: "curve", base: 3.2, say: `On average, the cards cost about ${avg} mana, ${pace}.` });
 
   if (statParts.length >= 2) {
-    beats.push({ kind: "stats", base: 2.6, say: `${listJoin(statParts)} keep it running.` });
+    beats.push({ kind: "stats", base: 2.6, say: `And to keep it all running, you've got ${listJoin(statParts)}.` });
   }
   const priciest = a.priciest && a.priciest.priceEur >= 5 ? a.priciest : null;
   beats.push({
     kind: "price",
     base: priciest ? 3.4 : 2.4,
-    say: `And the best part: all of this for about ${price} euros.${
-      priciest ? ` The most expensive card is ${shortName(priciest.name.split(" // ")[0])} at ${euros(priciest.priceEur)}.` : ""
+    say: `And the best part? All of this costs about ${price} euros.${
+      priciest ? ` The most expensive card in there is ${shortName(priciest.name.split(" // ")[0])} at ${euros(priciest.priceEur)}.` : ""
     }`,
   });
   // Schluss mit einer Frage (bringt Kommentare) statt "Follow"
-  beats.push({ kind: "cta", base: 2.8, say: "Which card would you swap first? Tell me in the comments." });
+  beats.push({ kind: "cta", base: 2.8, say: "So, which card would you swap out first? Let me know in the comments." });
 
   // Kurz (~15 s): die Kernaussage muss vor der durchschnittlichen Wiedergabedauer
   // kommen (/ig-reel: das Versprechen vor der Haelfte einloesen)
@@ -394,7 +413,7 @@ function beatHtml(b: TimedBeat, deck: Deck, s: ReelScript): string {
       return `<section ${attrs}>
         <div class="stack" style="top:200px">
           <div class="eyebrow anim" data-d="0" data-y="-20">THE ENGINE</div>
-          <h2 class="title anim" data-d="0.05" data-y="30">Key pieces</h2>
+          <h2 class="title anim" data-d="0.05" data-y="30">How it all connects</h2>
         </div>
         <div class="fanrow">${cards}</div>
       </section>`;
@@ -622,7 +641,7 @@ export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = 
   let t = 0;
   const beats: TimedBeat[] = script.beats.map((b, i) => {
     const v = voices[i];
-    const dur = Math.max(b.base, v ? v.seconds + 0.45 : 0);
+    const dur = Math.max(b.base, v ? v.seconds + 0.3 : 0);
     const tb = { ...b, start: t, dur, voiceSec: v ? v.seconds : 0 };
     t += dur;
     return tb;
@@ -637,7 +656,7 @@ export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = 
   const sfxFile = path.join(jobDir, "reel-sfx.wav");
   const musicFile = path.join(jobDir, "reel-music.wav");
   buildSoundtrack(cues, total, resolveAt, sfxFile, musicFile);
-  const spoken = voices.flatMap((v, i) => (v ? [{ file: v.file, at: beats[i].start + 0.15 }] : []));
+  const spoken = voices.flatMap((v, i) => (v ? [{ file: v.file, at: beats[i].start + 0.1 }] : []));
   const args = ["-y", "-f", "image2pipe", "-framerate", String(FPS), "-c:v", "mjpeg", "-i", "-", ...audioArgs(sfxFile, musicFile, spoken, total)];
   args.push(
     "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p", "-r", String(FPS),

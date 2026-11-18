@@ -11,6 +11,7 @@ import { ColorCode } from "../types";
 import { manaToWords, reelCoverPath, speakable, synthesizeVoices } from "./reel";
 import { humanize } from "../skills/human";
 import { buildSoundtrack, Cue } from "./sound";
+import { activatedEffect, asWhichClause, asYouClause, end, lcFirst, startsWithVerb } from "../skills/narration";
 import { audioArgs, LAND, STYLE_HTML, STYLE_JS, styleCss } from "./reelStyle";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -130,17 +131,30 @@ export function comboScript(c: Combo): { beats: Beat[]; hookScreen: string } {
     {
       kind: "hook",
       base: 2.6,
-      say: infinite ? `${NUM[n] ?? n} cards. ${res}. Here's how.` : `${NUM[n] ?? n} cards that ${trimClause(lower, 70)}. Here's how.`,
+      say: infinite
+        ? `${NUM[n] ?? n} cards, and you get ${lower}. Let me show you how that works.`
+        : `${NUM[n] ?? n} cards that ${trimClause(lower, 70)}. Let me show you how.`,
     },
   ];
-  // Jede Karte: nur der entscheidende Satz, kurz
+  // Jede Karte: der entscheidende Satz, als Teil einer Erzaehlung ("First up, X, which ...")
   c.cards.forEach((card, i) => {
-    const key = trimClause(card.keyText ?? "", 72);
+    const key = trimClause(card.keyText ?? "", 110);
+    const intro = i === 0 ? "First up," : i === n - 1 ? "And then there's" : "Next up,";
+    const which = key ? asWhichClause(key) : null;
+    const act = activatedEffect((card.keyText ?? "").replace(/. If you do, /i, ", and if you do, "));
+    const say = !key
+      ? `${intro} ${card.shortName}.`
+      : act
+        ? // "{2}, {T}: You may copy ..." -> "When you activate it, you may copy ..."
+          `${intro} ${card.shortName}. When you activate it, ${lcFirst(trimClause(act, 110))}.`
+        : which
+          ? `${intro} ${card.shortName}, ${which}.`
+          : `${intro} ${card.shortName}. What matters here is that ${lcFirst(key)}.`;
     beats.push({
       kind: "piece",
       card: i,
       base: 3,
-      say: `${card.shortName}${key ? `: ${key}.` : "."}`,
+      say,
       text: key,
     });
   });
@@ -155,19 +169,28 @@ export function comboScript(c: Combo): { beats: Beat[]; hookScreen: string } {
       const at = s.indexOf(k.shortName);
       if (at >= 0 && at < first) [first, cardIdx] = [at, ki];
     });
-    beats.push({ kind: "step", step: i, card: cardIdx >= 0 ? cardIdx : undefined, base: 2.8, say: `${short}.`, text: short });
+    const lead = ["So here's the loop. First,", "Then", "After that,"][i] ?? "Then";
+    beats.push({ kind: "step", step: i, card: cardIdx >= 0 ? cardIdx : undefined, base: 2.8, say: end(`${lead} ${asYouClause(short)}`), text: short });
   });
   beats.push({
     kind: "result",
     base: 3,
-    say: `${c.steps.some((s) => /^repeat/i.test(s.trim())) ? "Repeat, and " : "And "}${lower.length > 90 ? trimClause(lower, 90) : lower}.${
-      c.prerequisites[0] && c.prerequisites[0].length <= 60 ? ` You just need ${trimClause(c.prerequisites[0].charAt(0).toLowerCase() + c.prerequisites[0].slice(1), 70)}.` : ""
-    }`,
+    say: (() => {
+      const repeat = c.steps.some((s) => /^repeat/i.test(s.trim()));
+      const r = lower.length > 90 ? trimClause(lower, 90) : lower;
+      // Ergebnis als Befehl ("put all lands ...") vs. als Ding ("infinite mana")
+      const res = startsWithVerb(r)
+        ? `${repeat ? "Now just keep repeating that, and it lets you" : "And that lets you"} ${r}.`
+        : `${repeat ? "Now just keep repeating that, and you end up with" : "And that leaves you with"} ${r}.`;
+      const p = c.prerequisites[0];
+      const need = p && p.length <= 60 ? (/^you\b/i.test(p) ? ` Just make sure ${lcFirst(trimClause(p, 70))}.` : ` All you need is ${lcFirst(trimClause(p, 70))}.`) : "";
+      return res + need;
+    })(),
   });
   if (c.priceEur != null) {
-    beats.push({ kind: "price", base: 2.2, say: `All of it: about ${c.priceEur < 1 ? `${Math.round(c.priceEur * 100)} cents` : `${Math.round(c.priceEur)} euros`}.` });
+    beats.push({ kind: "price", base: 2.2, say: `And the best part? The whole combo costs about ${c.priceEur < 1 ? `${Math.round(c.priceEur * 100)} cents` : `${Math.round(c.priceEur)} euros`}.` });
   }
-  beats.push({ kind: "cta", base: 2.6, say: "Would you run it? Comment below." });
+  beats.push({ kind: "cta", base: 2.6, say: "So, would you play this one? Tell me in the comments." });
 
   // Bild-Hook: max. ~6 Woerter
   const words = res.split(/\s+/);
@@ -333,7 +356,7 @@ export async function buildComboReel(
   const beats: TimedBeat[] = script.map((b, i) => {
     const v = voices[i];
     const read = b.say.length / 17 + 0.5;
-    const dur = Math.max(b.base, v ? v.seconds + 0.4 : read);
+    const dur = Math.max(b.base, v ? v.seconds + 0.3 : read);
     const tb = { ...b, start: t, dur, voiceSec: v ? v.seconds : read - 0.4 };
     t += dur;
     return tb;
