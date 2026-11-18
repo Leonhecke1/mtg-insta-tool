@@ -3,12 +3,20 @@ import * as path from "path";
 import low, { LowdbSync } from "lowdb";
 import FileSync from "lowdb/adapters/FileSync";
 import { nanoid } from "nanoid";
-import { config } from "../config";
+import { config, instagramConfigured } from "../config";
+import { fetchOwnCaptions } from "../instagram/client";
 import { fetchArchidektDeck } from "../parser/archidekt";
 import { runPipeline } from "../pipeline";
 import { createJob, listJobs, updateJob } from "../jobs/jobStore";
 import { ensureJpegs } from "../render/renderer";
-import { buildNewPostStory } from "../render/reel";
+import { buildNewPostStory, buildReel, reelCoverPath } from "../render/reel";
+
+/** Video + Titelbild (falls vorhanden) */
+async function reelMedia(deck: Parameters<typeof buildReel>[0], dir: string): Promise<string[]> {
+  const video = await buildReel(deck, dir);
+  const cover = reelCoverPath(video);
+  return fs.existsSync(cover) ? [video, cover] : [video];
+}
 import { notify } from "../push/push";
 import { addItem, listItems } from "../queue/queueStore";
 import { Job } from "../types";
@@ -96,6 +104,37 @@ function usedSets(): { deckIds: Set<number>; commanders: Set<string> } {
   return { deckIds, commanders };
 }
 
+/**
+ * Was schon auf Instagram ist - die verlaessliche Quelle, auch wenn der
+ * Server out/ und data/ der alten Posts nicht kennt (z. B. frisch geklont).
+ * Archidekt-Links und Commander-Namen werden aus den Captions gelesen.
+ * 1 Stunde gecacht.
+ */
+let igHistory: { at: number; deckIds: Set<number>; text: string } | null = null;
+
+async function instagramHistory(): Promise<{ deckIds: Set<number>; text: string }> {
+  if (!instagramConfigured()) return { deckIds: new Set(), text: "" };
+  if (igHistory && Date.now() - igHistory.at < 3600_000) return igHistory;
+  try {
+    const captions = await fetchOwnCaptions();
+    const deckIds = new Set<number>();
+    for (const c of captions) {
+      for (const m of c.matchAll(/archidekt\.com\/decks\/(\d+)/g)) deckIds.add(Number(m[1]));
+    }
+    igHistory = { at: Date.now(), deckIds, text: norm(captions.join(" ")) };
+    console.log(`[daily] instagram history: ${captions.length} posts, ${deckIds.size} archidekt links`);
+    return igHistory;
+  } catch (err) {
+    console.error("[daily] instagram history failed:", err instanceof Error ? err.message : err);
+    return igHistory ?? { deckIds: new Set(), text: "" };
+  }
+}
+
+/** Nach einem neuen Post den Cache verwerfen */
+export function invalidateInstagramHistory(): void {
+  igHistory = null;
+}
+
 function acceptableListing(d: ArchidektSearchDeck): string | null {
   if (d.private || d.unlisted) return "private";
   if (d.theorycrafted) return "theorycrafted";
@@ -126,6 +165,10 @@ function log(entry: SourcedDeck): void {
 /** Waehlt ein passendes Deck, rendert es und gibt den fertigen Job zurueck. */
 export async function produceDeckTech(): Promise<{ job: Job; own: boolean } | null> {
   const used = usedSets();
+  const ig = await instagramHistory();
+  ig.deckIds.forEach((id) => used.deckIds.add(id));
+  // Commander gilt als gepostet, wenn sein voller Name in einer Caption steht
+  const postedOnIg = (name: string) => ig.text.length > 0 && norm(name).length >= 6 && ig.text.includes(norm(name));
   let tries = 0;
 
   for (const { deck, own } of await candidates()) {
@@ -141,7 +184,7 @@ export async function produceDeckTech(): Promise<{ job: Job; own: boolean } | nu
     // Commander vorab pruefen, bevor teuer gerendert wird
     const raw = await fetchArchidektDeck(url);
     const commander = raw.commanders.map((c) => c.name).join(" & ");
-    if (!commander || raw.commanders.some((c) => used.commanders.has(norm(c.name)))) {
+    if (!commander || raw.commanders.some((c) => used.commanders.has(norm(c.name)) || postedOnIg(c.name))) {
       log({ deckId: deck.id, owner: deck.owner.username, commander, at: new Date().toISOString(), outcome: "skipped", reason: "commander already covered" });
       continue;
     }
@@ -234,14 +277,16 @@ async function draftForDay(when: Date): Promise<string | null> {
   const jpgs = await ensureJpegs(r.slideFiles.slice(0, 10));
   const label = r.deckSummary?.commander ?? job.id;
 
+  // An Reel-Tagen ersetzt ein animiertes Reel das Carousel
+  const reelDay = config.dailyReelDays.includes(when.getDay());
   addItem({
     id: nanoid(10),
-    kind: "carousel",
+    kind: reelDay ? "reel" : "carousel",
     status: "draft",
     createdAt: new Date().toISOString(),
     scheduledAt: when.toISOString(),
     mediaToken: nanoid(24),
-    mediaFiles: jpgs,
+    mediaFiles: reelDay ? await reelMedia(r.deck, r.jobDir) : jpgs,
     caption: r.caption,
     sourceJobId: job.id,
     label,
@@ -302,8 +347,19 @@ export function ensureDailyDrafts(): Promise<void> {
 }
 
 /** Button "Neues Deck holen": Entwurf fuer den naechsten freien Tag. */
-export function fetchNextDeck(): Promise<{ label: string; scheduledAt: string }> {
+export function fetchNextDeck(day?: string): Promise<{ label: string; scheduledAt: string }> {
   return serialized(async () => {
+    // Bestimmter Tag aus der Plan-Ansicht ("YYYY-MM-DD")
+    if (day) {
+      const m = day.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) throw new Error("Ungültiges Datum");
+      const when = new Date(+m[1], +m[2] - 1, +m[3], config.dailyPostHour, 0, 0, 0);
+      if (when.getTime() < Date.now()) throw new Error("Der Termin liegt in der Vergangenheit");
+      if (isDayTaken(when)) throw new Error("An diesem Tag ist schon ein Post geplant");
+      const label = await draftForDay(when);
+      if (!label) throw new Error("Kein passendes Deck gefunden, später nochmal versuchen");
+      return { label, scheduledAt: when.toISOString() };
+    }
     for (let offset = 1; offset <= 60; offset++) {
       const when = postTimeForOffset(offset);
       if (isDayTaken(when)) continue;
@@ -313,4 +369,16 @@ export function fetchNextDeck(): Promise<{ label: string; scheduledAt: string }>
     }
     throw new Error("Die nächsten 60 Tage sind schon verplant");
   });
+}
+
+/** Einstellungen des Automatismus fuer die Plan-Ansicht */
+export function planInfo() {
+  return {
+    dailyDecks: config.dailyDecks,
+    postHour: config.dailyPostHour,
+    lookaheadDays: config.dailyLookaheadDays,
+    story: config.dailyStory,
+    reelDays: config.dailyReelDays,
+    budgetMaxEur: config.dailyBudgetMaxEur,
+  };
 }

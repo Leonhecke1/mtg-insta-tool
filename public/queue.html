@@ -73,8 +73,9 @@
   .field { margin-top: 8px; }
   .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
 
-  .btns { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-top: 12px; }
-  .btns.two { grid-template-columns: 1fr 1fr; }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .btns .now { border-color: #2F6B3A; color: #2F6B3A; }
+  .btns .now.armed { background: #2F6B3A; color: #fff; }
   .err { color: #A23B2A; font-size: 14px; margin-top: 8px; }
   .empty { text-align: center; color: var(--muted); padding: 40px 0; }
 
@@ -183,6 +184,12 @@ async function load(force) {
 
 function preview(it) {
   if (!it.previewUrls.length) return "";
+  // Reel: nur das Video zeigen, Titelbild als Poster
+  const vid = it.previewUrls.find((u) => u.endsWith(".mp4"));
+  if (vid) {
+    const poster = it.previewUrls.find((u) => !u.endsWith(".mp4"));
+    return `<div class="thumbs"><video src="${vid}" ${poster ? `poster="${poster}"` : ""} controls playsinline preload="none"></video></div>`;
+  }
   const items = it.previewUrls.map((u) =>
     u.endsWith(".mp4")
       ? `<video src="${u}" controls playsinline preload="metadata"></video>`
@@ -211,8 +218,9 @@ function render(it) {
     ${it.kind === "story" ? "" : `<div class="field"><label>${isReply ? "Antwort" : "Caption"}</label><textarea ${editable ? "" : "disabled"}>${esc(isReply ? it.replyText : it.caption)}</textarea></div>`}
     ${!isReply && editable ? `<div class="field"><label>Zeitpunkt</label><input type="datetime-local" value="${toLocal(it.scheduledAt)}"></div>` : ""}
     ${it.error ? `<div class="err">${esc(it.error)}</div>` : ""}
-    ${editable ? `<div class="btns ${canApprove ? "" : "two"}">
+    ${editable ? `<div class="btns">
       ${canApprove ? `<button class="primary" data-a="approve">Freigeben</button>` : ""}
+      <button class="now" data-a="now">Jetzt posten</button>
       <button data-a="save">Speichern</button>
       <button class="ghost" data-a="reject">Ablehnen</button>
     </div>` : ""}`;
@@ -222,9 +230,17 @@ function render(it) {
     const btn = e.target.closest("button[data-a]");
     if (!btn) return;
     const a = btn.dataset.a;
+    // "Jetzt posten" braucht einen zweiten Tipp, damit nichts aus Versehen rausgeht
+    if (a === "now" && !btn.dataset.armed) {
+      btn.dataset.armed = "1";
+      btn.textContent = "Wirklich posten?";
+      btn.classList.add("armed");
+      setTimeout(() => { delete btn.dataset.armed; btn.textContent = "Jetzt posten"; btn.classList.remove("armed"); }, 4000);
+      return;
+    }
     el.querySelectorAll("button").forEach((b) => (b.disabled = true));
     try {
-      if (a === "save" || a === "approve") {
+      if (a === "save" || a === "approve" || a === "now") {
         const ta = el.querySelector("textarea");
         const dt = el.querySelector('input[type="datetime-local"]');
         const patch = {};
@@ -233,6 +249,11 @@ function render(it) {
         await api("PATCH", `/api/queue/${it.id}`, patch);
       }
       if (a === "approve") await api("POST", `/api/queue/${it.id}/approve`);
+      if (a === "now") {
+        await api("POST", `/api/queue/${it.id}/post-now`);
+        msg.textContent = "Wird jetzt veröffentlicht …";
+        setTimeout(() => load(true), 8000);
+      }
       if (a === "reject") await api("POST", `/api/queue/${it.id}/reject`);
       dirty = false;
       load(true);

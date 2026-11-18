@@ -5,8 +5,9 @@ import { promisify } from "util";
 import puppeteer, { Browser } from "puppeteer";
 import { config } from "../config";
 import { Deck } from "../types";
+import { analyzeDeck, DeckAnalysis } from "../llm/fallback";
 import { escapeHtml } from "./components";
-import { FONT_STACK } from "./theme";
+import { FONT_STACK, MANA_CIRCLE_COLORS } from "./theme";
 
 // ffmpeg-static exportiert den Pfad zur mitgelieferten ffmpeg-Binary
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -17,24 +18,468 @@ const run = promisify(execFile);
 const W = 1080;
 const H = 1920;
 const FPS = 30;
+const FONT = FONT_STACK.replace(/"/g, "'");
+
+// ===========================================================================
+// Drehbuch
+// ===========================================================================
 
 /**
- * Faceless "Karte als Hauptmotiv"-Reel (siehe ~/.claude/instagram/swipe.md):
- *  1. Hook-Frame: Commander-Karte gross auf geblurrtem Artwork, Hook als
- *     grosse Text-Box oben (muss in < 1 s lesbar sein)
- *  2. danach die Deck-Tech-Slides, jeweils auf geblurrtem Artwork
- * Jeder Frame bekommt einen langsamen Zoom. Tonspur ist still - Trend-Audio
- * kann die API nicht setzen.
+ * Ein Reel besteht aus Szenen ("Beats"). Jede Szene hat ihren eigenen
+ * Bildinhalt und ihren eigenen Sprechtext - nichts wird zweimal gesagt, der
+ * Commander-Name faellt genau einmal (Szene 2). Ablauf nach dem Muster, das
+ * in ~/.claude/instagram/swipe.md am besten lief: Karte als Hauptmotiv,
+ * kurzer Hook vorne, Text in < 1 s lesbar.
  */
-export interface ReelOptions {
-  hook: string;
-  /** Slides (1-basiert), die nach dem Hook kommen. Default: 2..6 */
-  slides?: number[];
-  hookSeconds?: number;
-  slideSeconds?: number;
-  /** Sprechtext fuer das Voice-over (nur mit PIPER_BIN + PIPER_MODEL) */
-  voiceText?: string;
+type BeatKind = "hook" | "commander" | "engine" | "stats" | "price" | "cta";
+
+interface Beat {
+  kind: BeatKind;
+  /** Mindestdauer in Sekunden (ohne Voice-over) */
+  base: number;
+  /** Sprech- und Untertiteltext */
+  say: string;
 }
+
+export interface ReelScript {
+  hook: string;
+  beats: Beat[];
+  analysis: DeckAnalysis;
+}
+
+const HOOKS: Record<string, string[]> = {
+  tokens: ["Every spell here makes an army.", "One card in, five bodies out."],
+  counters: ["This deck gets bigger every single turn.", "Small on turn three. Huge on turn six."],
+  graveyard: ["Kill it. It comes back anyway.", "The graveyard is just a second hand."],
+  aristocrats: ["Every creature that dies drains the table.", "Your board wipe is my win condition."],
+  spellslinger: ["One spell is never enough here.", "Instants and sorceries, all the way down."],
+  artifacts: ["Every artifact turns into value.", "Junk on the table, cards in the hand."],
+  enchantress: ["Every enchantment draws a card.", "Auras, sagas, and a full grip."],
+  landfall: ["Every land drop is an attack.", "Play a land. Watch the board explode."],
+  blink: ["Same creature, same trigger, again and again.", "Flicker it twice, get paid twice."],
+  lifegain: ["Gaining life has never hit this hard.", "Every life point is ammunition."],
+  voltron: ["One creature. Twenty-one damage.", "Suit up one threat and end it."],
+  dragons: ["Ramp into a sky full of dragons.", "Turn five: dragons. Turn six: game."],
+};
+const GENERIC_HOOKS = ["This deck punches way above its price.", "A commander nobody expects at the table."];
+
+function hash(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return Math.abs(h);
+}
+const pick = <T>(arr: T[], seed: string): T => arr[hash(seed) % arr.length];
+
+function listJoin(items: string[]): string {
+  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/** Text fuer TTS saeubern (Piper liest Sonderzeichen sonst seltsam vor) */
+function speakable(s: string): string {
+  return s
+    .replace(/€\s?(\d+)/g, "$1 euros")
+    .replace(/&/g, " and ")
+    .replace(/\{[^}]*\}/g, " ")
+    .replace(/[^\p{L}\p{N}\s.,!?'+/-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function reelScript(deck: Deck, hookOverride?: string): ReelScript {
+  const a = analyzeDeck(deck);
+  const seed = deck.commanders.map((c) => c.name).join("|");
+  const tribal = /tribal$/.test(a.style) ? a.style.replace(/ tribal$/, "") : null;
+
+  let hook = hookOverride?.trim() || "";
+  if (!hook) {
+    if (tribal) hook = `A whole army of ${tribal}. One leader.`;
+    else if (a.archetypeId && HOOKS[a.archetypeId]) hook = pick(HOOKS[a.archetypeId], seed);
+    else hook = pick(GENERIC_HOOKS, seed);
+  }
+
+  const price = Math.round(a.priceEur);
+  const abilityShort = a.ability && a.ability.length <= 120 ? a.ability : null;
+  const statParts = [
+    a.stats.ramp ? `${a.stats.ramp} ramp` : null,
+    a.stats.draw ? `${a.stats.draw} draw` : null,
+    a.stats.removal ? `${a.stats.removal} removal` : null,
+  ].filter((x): x is string => Boolean(x));
+
+  const beats: Beat[] = [
+    { kind: "hook", base: 2.6, say: hook },
+    {
+      kind: "commander",
+      base: 3.2,
+      say: abilityShort ? `Meet ${a.name}. ${abilityShort}.` : `Meet ${a.name}, ${a.combo} ${a.style}.`,
+    },
+  ];
+  if (a.keyCards.length) {
+    beats.push({
+      kind: "engine",
+      base: 3.6,
+      say: `The engine: ${listJoin(a.keyCards.map((c) => c.name.split(" // ")[0]))}.`,
+    });
+  }
+  if (statParts.length >= 2) {
+    beats.push({ kind: "stats", base: 2.6, say: `${listJoin(statParts)} keep it running.` });
+  }
+  beats.push({ kind: "price", base: 2.2, say: `All of it for about ${price} euros.` });
+  beats.push({ kind: "cta", base: 2.6, say: "Full list in the caption. Follow for a new deck every day." });
+
+  return { hook, beats, analysis: a };
+}
+
+// ===========================================================================
+// Animierte Seite
+// ===========================================================================
+
+interface TimedBeat extends Beat {
+  start: number;
+  dur: number;
+}
+
+function cardImg(url: string | null, cls: string, extra = ""): string {
+  return url ? `<img class="${cls}" src="${escapeHtml(url)}" ${extra} alt="">` : "";
+}
+
+function beatHtml(b: TimedBeat, deck: Deck, s: ReelScript): string {
+  const a = s.analysis;
+  const cmd = deck.commanders[0];
+  const attrs = `class="beat" data-start="${b.start}" data-dur="${b.dur}"`;
+  switch (b.kind) {
+    case "hook":
+      return `<section ${attrs}>
+        <div class="stack" style="top:170px">
+          <div class="chip anim" data-d="0" data-y="-30">COMMANDER DECK TECH</div>
+          <h1 class="hook anim" data-d="0.08" data-y="60" data-s="0.92">${escapeHtml(s.hook)}</h1>
+        </div>
+        <div class="stack" style="top:820px">
+          ${cmd?.imageArtCrop ? `<div class="teaser anim" data-d="0.2" data-y="120" data-s="0.88" data-r="-4"><img src="${escapeHtml(cmd.imageArtCrop)}" alt=""></div>` : cardImg(cmd?.imageNormal ?? null, "card hero anim", 'data-d="0.25" data-y="140" data-s="0.85"')}
+        </div>
+      </section>`;
+    case "commander":
+      return `<section ${attrs}>
+        <div class="stack" style="top:150px">
+          <div class="eyebrow anim" data-d="0" data-y="-20">${escapeHtml(a.combo)} · ${escapeHtml(a.style)}</div>
+          <h2 class="name anim" data-d="0.05" data-y="30">${escapeHtml(a.name)}</h2>
+        </div>
+        <div class="stack" style="top:430px">
+          ${cardImg(cmd?.imageNormal ?? null, "card mid anim", 'data-d="0.1" data-x="260" data-r="8" data-s="0.9"')}
+        </div>
+        ${
+          a.ability
+            ? `<div class="stack" style="top:1300px"><p class="ability anim" data-d="0.55" data-y="40">${escapeHtml(
+                a.ability.length > 150 ? a.ability.slice(0, 147) + "…" : a.ability
+              )}</p></div>`
+            : ""
+        }
+      </section>`;
+    case "engine": {
+      const rot = [-9, 0, 9];
+      const dx = [-220, 0, 220];
+      const cards = a.keyCards
+        .map(
+          (c, i) =>
+            `<div class="fan anim" data-d="${0.15 + i * 0.35}" data-y="500" data-r="${rot[i] * 3}" style="transform-origin:50% 120%;--x:${dx[i]}px;--r:${rot[i]}deg;z-index:${i === 1 ? 3 : 2}">
+              ${cardImg(c.imageNormal, "card small")}
+            </div>`
+        )
+        .join("");
+      return `<section ${attrs}>
+        <div class="stack" style="top:200px">
+          <div class="eyebrow anim" data-d="0" data-y="-20">THE ENGINE</div>
+          <h2 class="title anim" data-d="0.05" data-y="30">Key pieces</h2>
+        </div>
+        <div class="fanrow">${cards}</div>
+      </section>`;
+    }
+    case "stats": {
+      const items: [string, number][] = [
+        ["Ramp", a.stats.ramp],
+        ["Draw", a.stats.draw],
+        ["Removal", a.stats.removal],
+      ];
+      return `<section ${attrs}>
+        <div class="stack" style="top:330px">
+          <div class="eyebrow anim" data-d="0" data-y="-20">WHAT KEEPS IT RUNNING</div>
+        </div>
+        <div class="stats">
+          ${items
+            .map(
+              ([label, n], i) => `<div class="stat anim" data-d="${0.1 + i * 0.18}" data-y="80">
+                <div class="num" data-count="${n}" data-cd="${0.1 + i * 0.18}">0</div>
+                <div class="label">${label}</div>
+              </div>`
+            )
+            .join("")}
+        </div>
+      </section>`;
+    }
+    case "price":
+      return `<section ${attrs}>
+        <div class="stack" style="top:560px">
+          <div class="eyebrow anim" data-d="0" data-y="-20">THE WHOLE DECK</div>
+          <div class="price anim" data-d="0.05" data-s="0.7"><span data-count="${Math.round(
+            a.priceEur
+          )}" data-cd="0.05" data-prefix="€">€0</span></div>
+          <div class="sub anim" data-d="0.4" data-y="30">${a.cardCount} cards · Cardmarket trend</div>
+        </div>
+      </section>`;
+    case "cta":
+      return `<section ${attrs}>
+        <div class="stack" style="top:520px">
+          ${cardImg(cmd?.imageNormal ?? null, "card tiny anim", 'data-d="0" data-s="0.6"')}
+          <h2 class="title anim" data-d="0.15" data-y="40">Full decklist<br>in the caption</h2>
+          <div class="follow anim" data-d="0.45" data-y="40" data-s="0.9">Follow @floating.mana</div>
+          <div class="sub anim" data-d="0.6" data-y="20">a new commander deck every day</div>
+        </div>
+      </section>`;
+  }
+}
+
+
+function pageHtml(deck: Deck, s: ReelScript, beats: TimedBeat[], total: number, subtitles: boolean): string {
+  const cmd = deck.commanders[0];
+  const art = cmd?.imageArtCrop ?? cmd?.imageNormal ?? "";
+  const accents = (deck.colorIdentity.length ? deck.colorIdentity : (["B"] as const)).map(
+    (c) => MANA_CIRCLE_COLORS[c]
+  );
+  const accent = accents[0];
+
+  return `<!doctype html><html><head><meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: ${W}px; height: ${H}px; overflow: hidden; background: #111; font-family: ${FONT}; color: #fff; }
+  #bg { position: absolute; inset: -120px; background: url('${escapeHtml(art)}') center/cover; filter: blur(46px) saturate(1.25) brightness(.55); }
+  #shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(10,10,12,.55) 0%, rgba(10,10,12,.15) 35%, rgba(10,10,12,.35) 70%, rgba(10,10,12,.85) 100%); }
+  #glow { position: absolute; width: 1400px; height: 1400px; left: -160px; top: 260px; border-radius: 50%;
+          background: radial-gradient(circle, ${accent}55 0%, transparent 60%); }
+  .beat { position: absolute; inset: 0; opacity: 0; }
+  .stack { position: absolute; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 26px; padding: 0 70px; text-align: center; }
+  .anim { will-change: transform, opacity; }
+  .chip { font-size: 30px; font-weight: 800; letter-spacing: 6px; padding: 12px 26px; border-radius: 999px; background: rgba(255,255,255,.14); border: 2px solid rgba(255,255,255,.35); }
+  .hook { margin: 0; font-size: 96px; line-height: 1.05; font-weight: 900; letter-spacing: -2px; text-shadow: 0 8px 40px rgba(0,0,0,.6); }
+  .eyebrow { font-size: 32px; font-weight: 800; letter-spacing: 5px; color: ${accent}; text-transform: uppercase; }
+  .name { margin: 0; font-size: 88px; line-height: 1.02; font-weight: 900; letter-spacing: -2px; text-shadow: 0 8px 40px rgba(0,0,0,.6); }
+  .title { margin: 0; font-size: 72px; line-height: 1.08; font-weight: 900; letter-spacing: -1.5px; text-shadow: 0 8px 40px rgba(0,0,0,.6); }
+  .card { display: block; border-radius: 4.6% / 3.4%; box-shadow: 0 50px 120px rgba(0,0,0,.65); }
+  .card.hero { width: 690px; }
+  .teaser { width: 900px; height: 660px; border-radius: 36px; overflow: hidden; box-shadow: 0 50px 120px rgba(0,0,0,.65); border: 6px solid rgba(255,255,255,.18); }
+  .teaser img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.05); }
+  .card.mid { width: 600px; }
+  .card.small { width: 380px; }
+  .card.tiny { width: 300px; margin-bottom: 20px; }
+  .ability { margin: 0; font-size: 42px; line-height: 1.3; font-weight: 600; max-width: 900px;
+             background: rgba(0,0,0,.55); padding: 26px 34px; border-radius: 26px; border-left: 8px solid ${accent}; text-align: left; }
+  .fanrow { position: absolute; left: 0; right: 0; top: 640px; height: 700px; }
+  .fan { position: absolute; left: 50%; top: 40px; margin-left: -190px; }
+  .stats { position: absolute; left: 70px; right: 70px; top: 520px; display: grid; gap: 34px; }
+  .stat { display: flex; align-items: baseline; gap: 34px; background: rgba(0,0,0,.45); border-radius: 30px; padding: 30px 46px; border: 2px solid rgba(255,255,255,.12); }
+  .stat .num { font-size: 170px; font-weight: 900; line-height: 1; min-width: 260px; color: ${accent}; font-variant-numeric: tabular-nums; }
+  .stat .label { font-size: 72px; font-weight: 800; }
+  .price { font-size: 250px; font-weight: 900; line-height: 1; letter-spacing: -6px; color: ${accent}; font-variant-numeric: tabular-nums; text-shadow: 0 10px 60px rgba(0,0,0,.6); }
+  .sub { font-size: 42px; font-weight: 600; color: rgba(255,255,255,.85); }
+  .follow { font-size: 54px; font-weight: 900; color: #1F1D18; background: ${accent}; padding: 22px 44px; border-radius: 999px; }
+  #progress { position: absolute; top: 70px; left: 70px; right: 70px; display: flex; gap: 10px; }
+  #progress div { flex: 1; height: 8px; border-radius: 4px; background: rgba(255,255,255,.25); overflow: hidden; }
+  #progress i { display: block; height: 100%; width: 0; background: #fff; }
+  #sub { position: absolute; left: 90px; right: 90px; top: 1440px; text-align: center; font-size: 46px; line-height: 1.25; font-weight: 800;
+         text-shadow: 0 3px 0 #000, 0 0 24px rgba(0,0,0,.9); display: ${subtitles ? "block" : "none"}; }
+  #handle { position: absolute; bottom: 120px; width: 100%; text-align: center; font-size: 32px; font-weight: 700; color: rgba(255,255,255,.6); }
+</style></head><body>
+  <div id="bg"></div><div id="glow"></div><div id="shade"></div>
+  <div id="progress">${beats.map(() => "<div><i></i></div>").join("")}</div>
+  ${beats.map((b) => beatHtml(b, deck, s)).join("\n")}
+  <div id="sub"></div>
+  <div id="handle">@floating.mana</div>
+<script>
+  const TOTAL = ${total};
+  const BEATS = ${JSON.stringify(beats.map((b) => ({ start: b.start, dur: b.dur, say: b.say })))};
+  const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+  const easeOutBack = (t) => { const c = 1.4; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+  const clamp = (x) => Math.max(0, Math.min(1, x));
+  const sections = [...document.querySelectorAll(".beat")];
+  const bars = [...document.querySelectorAll("#progress i")];
+  const sub = document.getElementById("sub");
+  const bg = document.getElementById("bg");
+  const glow = document.getElementById("glow");
+
+  window.renderAt = (t) => {
+    // Hintergrund: langsamer Ken-Burns ueber das ganze Video, Glow wandert
+    const g = t / TOTAL;
+    bg.style.transform = "scale(" + (1.18 - 0.14 * g) + ") translateY(" + (-30 * g) + "px)";
+    glow.style.transform = "translate(" + (Math.sin(t * 0.6) * 90) + "px," + (Math.cos(t * 0.45) * 120) + "px)";
+
+    sections.forEach((sec, i) => {
+      const start = +sec.dataset.start, dur = +sec.dataset.dur, lt = t - start;
+      const fadeIn = i === 0 ? 1 : clamp(lt / 0.22);
+      const fadeOut = clamp((start + dur - t) / 0.22);
+      const visible = lt >= 0 && lt <= dur;
+      sec.style.opacity = visible ? String(Math.min(fadeIn, i === sections.length - 1 ? 1 : fadeOut)) : "0";
+      // Szene schiebt sich beim Ausblenden leicht nach oben
+      sec.style.transform = "translateY(" + ((1 - fadeOut) * -60) + "px)";
+      if (!visible) return;
+
+      sec.querySelectorAll(".anim").forEach((el) => {
+        const d = +(el.dataset.d || 0), p = clamp((lt - d) / 0.55);
+        const e = easeOutBack(p), o = easeOut(clamp((lt - d) / 0.3));
+        const x = (+el.dataset.x || 0) * (1 - e), y = (+el.dataset.y || 0) * (1 - e);
+        const s0 = el.dataset.s ? +el.dataset.s : 1, sc = s0 + (1 - s0) * e;
+        const r0 = +el.dataset.r || 0;
+        // Faecher-Karten behalten ihre Endposition (--x/--r)
+        const fx = el.classList.contains("fan") ? getComputedStyle(el).getPropertyValue("--x") : "0px";
+        const fr = el.classList.contains("fan") ? parseFloat(getComputedStyle(el).getPropertyValue("--r")) : 0;
+        const drift = el.classList.contains("card") || el.classList.contains("fan") ? Math.sin((lt + d) * 1.3) * 6 : 0;
+        el.style.opacity = String(o);
+        el.style.transform = "translate(calc(" + fx + " + " + x + "px)," + (y + drift) + "px) rotate(" + (fr + r0 * (1 - e)) + "deg) scale(" + sc + ")";
+      });
+      sec.querySelectorAll("[data-count]").forEach((el) => {
+        const p = easeOut(clamp((lt - (+el.dataset.cd || 0)) / 0.9));
+        el.textContent = (el.dataset.prefix || "") + Math.round(+el.dataset.count * p);
+      });
+    });
+
+    BEATS.forEach((b, i) => { bars[i].style.width = (clamp((t - b.start) / b.dur) * 100) + "%"; });
+    const cur = BEATS.find((b) => t >= b.start && t < b.start + b.dur) || BEATS[BEATS.length - 1];
+    sub.textContent = cur.say;
+  };
+
+  window.assetsReady = () => Promise.all([...document.images].map((img) =>
+    img.complete ? Promise.resolve() : new Promise((r) => { img.onload = img.onerror = r; })
+  ));
+</script>
+</body></html>`;
+}
+
+// ===========================================================================
+// Rendern + Ton
+// ===========================================================================
+
+export interface ReelOptions {
+  /** Eigener Hook; leer = aus dem Deck abgeleitet */
+  hook?: string;
+}
+
+/**
+ * Rendert das Reel Bild fuer Bild (Puppeteer) und kodiert es mit ffmpeg.
+ * Mit PIPER_BIN/PIPER_MODEL bekommt jede Szene ihre eigene Sprachspur und
+ * dauert so lange wie ihr Satz; sonst Untertitel-frei und stumm.
+ */
+export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = {}): Promise<string> {
+  if (!ffmpegPath) throw new Error("ffmpeg-static binary not available on this platform");
+  const script = reelScript(deck, opts.hook);
+
+  // 1. Voice-over je Szene (optional)
+  const voices: ({ file: string; seconds: number } | null)[] = [];
+  for (let i = 0; i < script.beats.length; i++) {
+    voices.push(await synthesizeVoice(speakable(script.beats[i].say), jobDir, `reel-voice-${i}.wav`));
+  }
+  const withVoice = voices.some(Boolean);
+
+  // 2. Zeitachse: Szene so lang wie Mindestdauer bzw. Satz + Luft
+  let t = 0;
+  const beats: TimedBeat[] = script.beats.map((b, i) => {
+    const v = voices[i];
+    const dur = Math.max(b.base, v ? v.seconds + 0.45 : 0);
+    const tb = { ...b, start: t, dur };
+    t += dur;
+    return tb;
+  });
+  const total = t;
+  const frames = Math.round(total * FPS);
+
+  // 3. ffmpeg vorbereiten: Bilder kommen per Pipe, Ton als Datei(en)
+  const out = path.join(jobDir, "reel.mp4");
+  const args = ["-y", "-f", "image2pipe", "-framerate", String(FPS), "-c:v", "mjpeg", "-i", "-"];
+  const audioInputs: { idx: number; delayMs: number }[] = [];
+  if (withVoice) {
+    voices.forEach((v, i) => {
+      if (!v) return;
+      args.push("-i", v.file);
+      audioInputs.push({ idx: audioInputs.length + 1, delayMs: Math.round((beats[i].start + 0.15) * 1000) });
+    });
+    const parts = audioInputs.map((a) => `[${a.idx}:a]aresample=44100,aformat=channel_layouts=stereo,adelay=${a.delayMs}|${a.delayMs}[a${a.idx}]`);
+    const mix = `${audioInputs.map((a) => `[a${a.idx}]`).join("")}amix=inputs=${audioInputs.length}:normalize=0,apad,atrim=0:${total.toFixed(3)}[a]`;
+    args.push("-filter_complex", [...parts, mix].join(";"), "-map", "0:v", "-map", "[a]");
+  } else {
+    args.push("-f", "lavfi", "-t", total.toFixed(3), "-i", "anullsrc=r=44100:cl=stereo", "-map", "0:v", "-map", "1:a");
+  }
+  args.push(
+    "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p", "-r", String(FPS),
+    "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", out
+  );
+
+  const ff = spawn(ffmpegPath, args);
+  let ffErr = "";
+  ff.stderr.on("data", (d) => (ffErr = (ffErr + d).slice(-4000)));
+  const ffDone = new Promise<void>((resolve, reject) => {
+    ff.on("error", reject);
+    ff.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exit ${code}: ${ffErr.slice(-800)}`))));
+  });
+
+  // 4. Seite rendern und Bild fuer Bild aufnehmen
+  let browser: Browser | null = null;
+  try {
+    browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+    const page = await browser.newPage();
+    await page.setViewport({ width: W, height: H, deviceScaleFactor: 1 });
+    await page.setContent(pageHtml(deck, script, beats, total, withVoice), { waitUntil: "networkidle0", timeout: 90_000 });
+    await page.evaluate("window.assetsReady()");
+    const coverFrame = Math.min(frames - 1, Math.round(1.8 * FPS));
+    for (let f = 0; f < frames; f++) {
+      await page.evaluate(`window.renderAt(${(f / FPS).toFixed(4)})`);
+      const buf = (await page.screenshot({ type: "jpeg", quality: 90 })) as Buffer;
+      // Titelbild aus der Hook-Szene (Vorschau in der App + Reel-Cover bei Instagram)
+      if (f === coverFrame) fs.writeFileSync(reelCoverPath(out), buf);
+      if (!ff.stdin.write(buf)) await new Promise((r) => ff.stdin.once("drain", r));
+    }
+  } catch (err) {
+    ff.kill("SIGKILL");
+    throw err;
+  } finally {
+    ff.stdin.end();
+    if (browser) await browser.close();
+  }
+  await ffDone;
+  voices.forEach((v) => v && fs.rmSync(v.file, { force: true }));
+  return out;
+}
+
+/** Titelbild, das buildReel neben dem Video ablegt */
+export function reelCoverPath(videoFile: string): string {
+  return videoFile.replace(/\.mp4$/i, "-cover.jpg");
+}
+
+/**
+ * Text-to-Speech mit Piper (https://github.com/rhasspy/piper), laeuft lokal
+ * und kostenlos. Ohne PIPER_BIN/PIPER_MODEL gibt es kein Voice-over.
+ */
+async function synthesizeVoice(
+  text: string,
+  jobDir: string,
+  fileName: string
+): Promise<{ file: string; seconds: number } | null> {
+  if (!config.piperBin || !config.piperModel || !ffmpegPath || !text) return null;
+  const file = path.join(jobDir, fileName);
+  await new Promise<void>((resolve, reject) => {
+    const p = spawn(config.piperBin, ["--model", config.piperModel, "--output_file", file]);
+    let stderr = "";
+    p.stderr.on("data", (d) => (stderr += d));
+    p.on("error", reject);
+    p.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`piper exit ${code}: ${stderr.slice(-300)}`))));
+    p.stdin.end(text);
+  });
+  const probe = await run(ffmpegPath, ["-i", file], { maxBuffer: 8 * 1024 * 1024 }).catch(
+    (e: { stderr?: string }) => ({ stderr: e.stderr ?? "" })
+  );
+  const m = String(probe.stderr).match(/Duration: (\d+):(\d+):([\d.]+)/);
+  const seconds = m ? +m[1] * 3600 + +m[2] * 60 + parseFloat(m[3]) : 3;
+  return { file, seconds };
+}
+
+// ===========================================================================
+// Story-Grafik "Neuer Post" (Einzelbild)
+// ===========================================================================
 
 function toDataUri(file: string): string {
   const ext = path.extname(file).slice(1).toLowerCase().replace("jpg", "jpeg");
@@ -47,160 +492,17 @@ function backdrop(artUrl: string | null): string {
     : `<div style="position:absolute;inset:0;background:#1F1D18;"></div>`;
 }
 
-function hookFrameHtml(deck: Deck, hook: string): string {
-  const c = deck.commanders[0];
-  const card = c?.imageNormal ?? c?.imageArtCrop ?? null;
-  return `<!doctype html><html><head><meta charset="utf-8"></head>
-<body style="margin:0;width:${W}px;height:${H}px;overflow:hidden;position:relative;font-family:${FONT_STACK.replace(/"/g, "'")};">
-  ${backdrop(c?.imageArtCrop ?? card)}
-  <div style="position:absolute;top:150px;left:70px;right:70px;text-align:center;">
-    <span style="display:inline;background:#000;color:#fff;font-size:68px;font-weight:800;line-height:1.32;
-      padding:6px 18px;box-decoration-break:clone;-webkit-box-decoration-break:clone;">${escapeHtml(hook)}</span>
-  </div>
-  ${
-    card
-      ? `<img src="${escapeHtml(card)}" style="position:absolute;left:50%;top:56%;transform:translate(-50%,-50%);
-          width:760px;border-radius:38px;box-shadow:0 40px 90px rgba(0,0,0,0.6);">`
-      : ""
-  }
-  <div style="position:absolute;bottom:90px;width:100%;text-align:center;color:rgba(255,255,255,0.75);font-size:34px;font-weight:600;">@floating.mana</div>
-</body></html>`;
-}
-
-function slideFrameHtml(deck: Deck, slideFile: string): string {
-  const c = deck.commanders[0];
-  return `<!doctype html><html><head><meta charset="utf-8"></head>
-<body style="margin:0;width:${W}px;height:${H}px;overflow:hidden;position:relative;">
-  ${backdrop(c?.imageArtCrop ?? c?.imageNormal ?? null)}
-  <img src="${toDataUri(slideFile)}" style="position:absolute;left:0;top:${(H - 1350) / 2}px;width:${W}px;height:1350px;box-shadow:0 30px 80px rgba(0,0,0,0.5);">
-</body></html>`;
-}
-
-async function renderFrames(htmls: string[], outDir: string): Promise<string[]> {
+async function renderStill(html: string, file: string): Promise<void> {
   let browser: Browser | null = null;
-  const files: string[] = [];
   try {
     browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
     const page = await browser.newPage();
     await page.setViewport({ width: W, height: H, deviceScaleFactor: 1 });
-    for (let i = 0; i < htmls.length; i++) {
-      await page.setContent(htmls[i], { waitUntil: "networkidle0", timeout: 60_000 });
-      const file = path.join(outDir, `reel-frame-${String(i).padStart(2, "0")}.jpg`);
-      await page.screenshot({ path: file as `${string}.jpeg`, type: "jpeg", quality: 92 });
-      files.push(file);
-    }
+    await page.setContent(html, { waitUntil: "networkidle0", timeout: 60_000 });
+    await page.screenshot({ path: file as `${string}.jpeg`, type: "jpeg", quality: 92 });
   } finally {
     if (browser) await browser.close();
   }
-  return files;
-}
-
-export async function buildReel(
-  deck: Deck,
-  slideFiles: string[],
-  jobDir: string,
-  opts: ReelOptions
-): Promise<string> {
-  if (!ffmpegPath) throw new Error("ffmpeg-static binary not available on this platform");
-  if (!opts.hook.trim()) throw new Error("Reel needs a hook text");
-
-  const hookSec = opts.hookSeconds ?? 3.5;
-  let slideSec = opts.slideSeconds ?? 2.5;
-  const picked = (opts.slides ?? [2, 3, 4, 5, 6])
-    .map((n) => slideFiles[n - 1])
-    .filter((f): f is string => Boolean(f));
-
-  // Optionales Voice-over: Video so lang machen, dass die Sprache reinpasst
-  const voice = opts.voiceText?.trim() ? await synthesizeVoice(opts.voiceText, jobDir) : null;
-  if (voice && picked.length) {
-    const needed = voice.seconds + 0.8 - hookSec;
-    slideSec = Math.max(slideSec, needed / picked.length);
-  }
-
-  const frames = await renderFrames(
-    [hookFrameHtml(deck, opts.hook), ...picked.map((f) => slideFrameHtml(deck, f))],
-    jobDir
-  );
-  const durations = frames.map((_, i) => (i === 0 ? hookSec : slideSec));
-  const total = durations.reduce((a, b) => a + b, 0);
-
-  const args: string[] = ["-y"];
-  frames.forEach((f) => args.push("-i", f));
-  if (voice) {
-    // Sprache mit Stille bis zum Videoende auffuellen
-    args.push("-i", voice.file);
-  } else {
-    args.push("-f", "lavfi", "-t", String(total), "-i", "anullsrc=r=44100:cl=stereo");
-  }
-
-  const chains = frames.map((_, i) => {
-    const n = Math.round(durations[i] * FPS);
-    // langsamer Zoom von 1.00 auf ~1.06, zentriert
-    return `[${i}:v]scale=${W * 2}:${H * 2},zoompan=z='1+0.06*on/${n}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${n}:s=${W}x${H}:fps=${FPS},setsar=1[v${i}]`;
-  });
-  const concat = `${frames.map((_, i) => `[v${i}]`).join("")}concat=n=${frames.length}:v=1:a=0,format=yuv420p[v]`;
-  const audio = voice
-    ? `[${frames.length}:a]aresample=44100,aformat=channel_layouts=stereo,adelay=400|400,apad,atrim=0:${total}[a]`
-    : `[${frames.length}:a]anull[a]`;
-
-  const out = path.join(jobDir, "reel.mp4");
-  args.push(
-    "-filter_complex", [...chains, concat, audio].join(";"),
-    "-map", "[v]",
-    "-map", "[a]",
-    "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-r", String(FPS),
-    "-c:a", "aac", "-b:a", "128k",
-    "-shortest", "-movflags", "+faststart",
-    out
-  );
-
-  await run(ffmpegPath, args, { maxBuffer: 64 * 1024 * 1024 });
-  frames.forEach((f) => fs.rmSync(f, { force: true }));
-  if (voice) fs.rmSync(voice.file, { force: true });
-  return out;
-}
-
-/**
- * Text-to-Speech mit Piper (https://github.com/rhasspy/piper), laeuft lokal
- * und kostenlos. Ohne PIPER_BIN/PIPER_MODEL gibt es kein Voice-over.
- */
-async function synthesizeVoice(
-  text: string,
-  jobDir: string
-): Promise<{ file: string; seconds: number } | null> {
-  if (!config.piperBin || !config.piperModel || !ffmpegPath) return null;
-  const file = path.join(jobDir, "reel-voice.wav");
-  await new Promise<void>((resolve, reject) => {
-    const p = spawn(config.piperBin, ["--model", config.piperModel, "--output_file", file]);
-    let stderr = "";
-    p.stderr.on("data", (d) => (stderr += d));
-    p.on("error", reject);
-    p.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`piper exit ${code}: ${stderr.slice(-300)}`))));
-    p.stdin.end(text.replace(/\s+/g, " "));
-  });
-  // Dauer aus ffmpeg-Ausgabe lesen ("Duration: 00:00:12.34")
-  const probe = await run(ffmpegPath, ["-i", file], { maxBuffer: 8 * 1024 * 1024 }).catch(
-    (e: { stderr?: string }) => ({ stderr: e.stderr ?? "" })
-  );
-  const m = String(probe.stderr).match(/Duration: (\d+):(\d+):([\d.]+)/);
-  const seconds = m ? +m[1] * 3600 + +m[2] * 60 + parseFloat(m[3]) : 12;
-  return { file, seconds };
-}
-
-/** Sprechtext fuers Reel: Hook, Plan, Eckdaten. Ohne Sonderzeichen fuer TTS. */
-export function reelNarration(hook: string, deck: Deck, tagline: string): string {
-  const price = Math.round(deck.totalPriceEur);
-  return [
-    hook,
-    tagline,
-    `${deck.cardCount} cards, about ${price} euros.`,
-    "Full deck tech on the profile.",
-  ]
-    .join(" ")
-    .replace(/[€&]/g, (c) => (c === "€" ? " euros" : " and "))
-    .replace(/[^\p{L}\p{N}\s.,!?'+/-]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 /**
@@ -210,9 +512,8 @@ export function reelNarration(hook: string, deck: Deck, tagline: string): string
  */
 export async function buildNewPostStory(deck: Deck, coverFile: string, jobDir: string): Promise<string> {
   const c = deck.commanders[0];
-  const font = FONT_STACK.replace(/"/g, "'");
   const html = `<!doctype html><html><head><meta charset="utf-8"></head>
-<body style="margin:0;width:${W}px;height:${H}px;overflow:hidden;position:relative;font-family:${font};">
+<body style="margin:0;width:${W}px;height:${H}px;overflow:hidden;position:relative;font-family:${FONT};">
   ${backdrop(c?.imageArtCrop ?? c?.imageNormal ?? null)}
   <div style="position:absolute;top:210px;width:100%;text-align:center;">
     <span style="background:#fff;color:#1F1D18;font-size:44px;font-weight:800;letter-spacing:4px;padding:12px 28px;border-radius:999px;">NEW POST</span>
@@ -224,8 +525,7 @@ export async function buildNewPostStory(deck: Deck, coverFile: string, jobDir: s
   </div>
   <div style="position:absolute;bottom:110px;width:100%;text-align:center;color:rgba(255,255,255,0.75);font-size:34px;font-weight:600;">@floating.mana</div>
 </body></html>`;
-  const [frame] = await renderFrames([html], jobDir);
   const out = path.join(jobDir, "story-new-post.jpg");
-  fs.renameSync(frame, out);
+  await renderStill(html, out);
   return out;
 }

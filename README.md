@@ -271,3 +271,17 @@ Ohne Piper bleiben Reels stumm.
   - neuen Kommentaren (nur mit LLM)
   - fehlgeschlagenem Veröffentlichen
 - **Navigation:** Tab-Leiste unten (Freigabe / Erstellen / Einstellungen) mit Zähler offener Entwürfe.
+
+## Reels, Plan und „Jetzt posten“
+
+- **Reels** sind eigene animierte 9:16-Videos (ca. 16 s), keine Slide-Zooms. Sie bestehen aus
+  sechs Szenen: Hook mit Artwork, Commander-Reveal mit Fähigkeit, Schlüsselkarten, Ramp/Draw/Removal,
+  Preis und Call to Action. Gerendert wird Bild für Bild mit Puppeteer, kodiert mit ffmpeg.
+  Mit Piper bekommt jede Szene ihre eigene Sprachspur, ihre Länge richtet sich nach dem Satz,
+  und Untertitel laufen mit. Ein Titelbild wird als Vorschau und Instagram-Cover gespeichert.
+- **Reel-Tage:** `DAILY_REEL_DAYS=di,fr`. An diesen Tagen legt der Automatismus ein Reel statt
+  eines Carousels an.
+- **Plan-Tab:** Kalender für 4 Wochen plus Tagesliste. Zeigt die Einstellungen des Automatismus.
+  „Deck holen“ füllt einen leeren Tag. Neu laden jede Minute.
+- **Jetzt posten:** In der Freigabe zweimal tippen. Der Eintrag wird freigegeben und sofort
+  veröffentlicht.

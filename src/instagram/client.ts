@@ -91,11 +91,12 @@ export async function publishStory(imageUrl: string): Promise<string> {
   return publishContainer(id);
 }
 
-export async function publishReel(videoUrl: string, caption: string): Promise<string> {
+export async function publishReel(videoUrl: string, caption: string, coverUrl?: string): Promise<string> {
   const { id } = await call<{ id: string }>("POST", `/${config.igUserId}/media`, {
     media_type: "REELS",
     video_url: videoUrl,
     caption,
+    ...(coverUrl ? { cover_url: coverUrl } : {}),
   });
   return publishContainer(id);
 }
@@ -111,6 +112,27 @@ export interface IgComment {
 }
 
 /** Top-Level-Kommentare unter den letzten eigenen Posts. */
+/** Captions aller eigenen Posts (fuer "schon gepostet"-Erkennung), seitenweise. */
+export async function fetchOwnCaptions(max = 1000): Promise<string[]> {
+  const out: string[] = [];
+  let page = await call<{ data: { caption?: string }[]; paging?: { next?: string } }>(
+    "GET",
+    `/${config.igUserId}/media`,
+    { fields: "caption", limit: "100" }
+  );
+  for (;;) {
+    for (const m of page.data) if (m.caption) out.push(m.caption);
+    const next = page.paging?.next;
+    if (!next || out.length >= max) break;
+    // "next" ist eine vollstaendige URL inkl. Token und Cursor
+    const res = await fetch(next);
+    const body: any = await res.json().catch(() => ({}));
+    if (!res.ok || body.error) throw new Error(`Instagram API paging: ${body?.error?.message ?? res.status}`);
+    page = body;
+  }
+  return out;
+}
+
 export async function fetchRecentComments(mediaLimit = 10): Promise<IgComment[]> {
   const me = await call<{ username: string }>("GET", `/${config.igUserId}`, {
     fields: "username",

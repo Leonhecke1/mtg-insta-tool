@@ -201,3 +201,9 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
   .tab { flex: 1 1 auto; text-align: center; }
   textarea { max-width: 100%; }
 }
+
+/* Nichts darf breiter als der Bildschirm werden, sonst verschiebt iOS die feste Tab-Leiste */
+html, body { max-width: 100%; overflow-x: hidden; }
+img, video { max-width: 100%; }
+.panel, .job-card { min-width: 0; overflow-wrap: anywhere; }
+.modal-overlay { z-index: 60; }
