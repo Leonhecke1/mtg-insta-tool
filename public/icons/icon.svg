@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#F4EFE4"/>
+  <circle cx="150" cy="150" r="92" fill="#B6CFE8"/>
+  <circle cx="376" cy="128" r="64" fill="#F8E7B9"/>
+  <circle cx="392" cy="372" r="96" fill="#EFA98B"/>
+  <circle cx="128" cy="396" r="70" fill="#C2D8CB"/>
+  <circle cx="262" cy="262" r="54" fill="#A69F8D"/>
+  <text x="256" y="300" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="150" font-weight="800" fill="#1F1D18" letter-spacing="-6">fm</text>
+</svg>

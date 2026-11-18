@@ -40,6 +40,8 @@ export interface QueueItem {
   publishedId?: string;
   publishedAt?: string;
   error?: string;
+  /** Wann zuletzt per Push an die fehlende Freigabe erinnert wurde */
+  remindedAt?: string;
 }
 
 interface Schema {
