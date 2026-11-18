@@ -49,7 +49,7 @@ async function publish(item: QueueItem): Promise<string> {
     case "story":
       return publishStory(urls[0]);
     case "reel":
-      return publishReel(urls[0], caption);
+      return publishReel(urls[0], caption, urls[1]);
     case "comment_reply":
       if (!item.commentId || !item.replyText) throw new Error("reply without text/commentId");
       return replyToComment(item.commentId, item.replyText);
@@ -211,6 +211,11 @@ async function dailyTick(): Promise<void> {
   } finally {
     dailyRunning = false;
   }
+}
+
+/** Sofort einen Durchlauf starten (z. B. nach "Jetzt posten"), statt bis zum naechsten Intervall zu warten. */
+export function runSchedulerNow(): void {
+  if (instagramConfigured()) void tick();
 }
 
 export function startScheduler(): void {

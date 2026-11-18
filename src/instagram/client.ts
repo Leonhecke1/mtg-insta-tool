@@ -91,11 +91,12 @@ export async function publishStory(imageUrl: string): Promise<string> {
   return publishContainer(id);
 }
 
-export async function publishReel(videoUrl: string, caption: string): Promise<string> {
+export async function publishReel(videoUrl: string, caption: string, coverUrl?: string): Promise<string> {
   const { id } = await call<{ id: string }>("POST", `/${config.igUserId}/media`, {
     media_type: "REELS",
     video_url: videoUrl,
     caption,
+    ...(coverUrl ? { cover_url: coverUrl } : {}),
   });
   return publishContainer(id);
 }

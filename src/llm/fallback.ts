@@ -204,13 +204,20 @@ function tribe(deck: Deck): { name: string; count: number } | null {
   return best && best[1] >= 12 ? { name: best[0], count: best[1] } : null;
 }
 
-function keyCards(deck: Deck, arch: Archetype | undefined, n: number): string[] {
-  const candidates = nonLand(deck).filter((c) => !STAPLES.has(c.name.toLowerCase()));
+function keyCardObjs(deck: Deck, arch: Archetype | undefined, n: number): EnrichedCard[] {
+  const commanderNames = new Set(deck.commanders.map((c) => c.name));
+  const candidates = nonLand(deck).filter(
+    (c) => !STAPLES.has(c.name.toLowerCase()) && !commanderNames.has(c.name)
+  );
   const synergy = arch ? candidates.filter((c) => arch.test.test(c.oracleText)) : [];
   const ranked = [...(synergy.length >= n ? synergy : candidates)].sort(
     (a, b) => (b.priceEur ?? 0) - (a.priceEur ?? 0)
   );
-  return ranked.slice(0, n).map((c) => c.name);
+  return ranked.slice(0, n);
+}
+
+function keyCards(deck: Deck, arch: Archetype | undefined, n: number): string[] {
+  return keyCardObjs(deck, arch, n).map((c) => c.name);
 }
 
 interface Stats {
@@ -248,6 +255,45 @@ function listJoin(items: string[]): string {
 
 function hashtagify(s: string): string {
   return "#" + s.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+}
+
+// ---------------------------------------------------------------------------
+// Analyse fuer andere Formate (Reel)
+// ---------------------------------------------------------------------------
+
+export interface DeckAnalysis {
+  name: string; // Kurzname(n) des Commanders
+  combo: string; // "Simic"
+  style: string; // "Merfolk tribal", "go-wide tokens"
+  archetypeId: string | null;
+  engine: string | null; // "turns every spell into more bodies on the board"
+  finish: string | null;
+  ability: string | null;
+  keyCards: EnrichedCard[];
+  stats: Stats;
+  priceEur: number;
+  cardCount: number;
+}
+
+export function analyzeDeck(deck: Deck): DeckAnalysis {
+  const archs = detectArchetypes(deck);
+  const main = archs[0];
+  const second = archs[1];
+  const tr = tribe(deck);
+  const fullName = commanderDisplayName(deck.commanders);
+  return {
+    name: deck.commanders.map((c) => shortName(c.name)).join(" & ") || fullName,
+    combo: colorComboName(deck.colorIdentity),
+    style: tr ? `${tr.name} tribal` : main ? (second ? `${main.label} with a ${second.label} twist` : main.label) : "midrange value",
+    archetypeId: main?.id ?? null,
+    engine: main?.engine ?? null,
+    finish: main?.finish ?? null,
+    ability: deck.commanders[0] ? commanderAbility(deck.commanders[0]) : null,
+    keyCards: keyCardObjs(deck, main, 3),
+    stats: stats(deck),
+    priceEur: deck.totalPriceEur,
+    cardCount: deck.cardCount,
+  };
 }
 
 // ---------------------------------------------------------------------------

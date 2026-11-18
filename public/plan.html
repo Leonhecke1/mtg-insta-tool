@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#F4EFE4" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="floating.mana" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<title>Plan · floating.mana</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  header.top { position: sticky; top: 0; z-index: 10; background: #F4EFE4; padding: calc(10px + env(safe-area-inset-top)) 16px 10px; border-bottom: 1px solid #E2D9C6; }
+  header.top h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  header.top .sub { font-size: 13px; color: #7A7263; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 12px 16px 24px; }
+
+  .auto { background: #fff; border: 1px solid #E2D9C6; border-radius: 16px; padding: 14px; margin-bottom: 14px; font-size: 14px; line-height: 1.5; }
+  .auto b { font-weight: 600; }
+  .auto .row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid #F1EBDD; }
+  .auto .row:last-child { border-bottom: 0; }
+  .auto .k { color: #7A7263; }
+  .auto .v { text-align: right; }
+  .off { color: #A23B2A; }
+
+  .cal { background: #fff; border: 1px solid #E2D9C6; border-radius: 16px; padding: 10px; margin-bottom: 16px; }
+  .cal .head, .cal .wk { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cal .head { font-size: 11px; color: #9A8F7A; text-align: center; margin-bottom: 4px; }
+  .cal .wk { margin-bottom: 4px; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #7A7263; margin: 6px 4px 0; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  .wd { display: block; text-decoration: none; background: #FBF8F2; border-radius: 10px; padding: 6px 0 7px; text-align: center; font-size: 15px; font-weight: 600; color: #1F1D18; }
+  .wd.past { color: #C9BFAB; background: transparent; }
+  .wd.reel { box-shadow: inset 0 -3px 0 #B6CFE8; }
+  .wd i { display: block; width: 8px; height: 8px; border-radius: 50%; margin: 4px auto 0; background: #E2D9C6; }
+  .wd.past i { visibility: hidden; }
+  .wd i.draft { background: #E9B949; } .wd i.approved { background: #6BA368; } .wd i.published { background: #5B8DC9; } .wd i.failed { background: #A23B2A; }
+  .wd.today { outline: 2px solid #1F1D18; }
+
+  .day { background: #fff; border: 1px solid #E2D9C6; border-radius: 16px; padding: 12px 14px; margin-bottom: 10px; }
+  .day h2 { margin: 0 0 8px; font-size: 15px; font-weight: 600; display: flex; justify-content: space-between; }
+  .day h2 span { color: #7A7263; font-weight: 500; }
+  .item { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid #F1EBDD; text-decoration: none; color: inherit; }
+  .item:first-of-type { border-top: 0; }
+  .item img, .item .ph { width: 48px; height: 60px; object-fit: cover; border-radius: 8px; background: #EDE5D3; flex: none; }
+  .item .t { flex: 1; min-width: 0; }
+  .item .t b { display: block; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .t small { color: #7A7263; font-size: 13px; }
+  .pill { flex: none; font-size: 12px; padding: 3px 9px; border-radius: 99px; background: #EDE5D3; }
+  .pill.approved { background: #D5E8D0; } .pill.published { background: #CFE0F2; } .pill.failed { background: #F4D2CC; }
+  .gap { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #7A7263; font-size: 14px; }
+  .gap button { font: inherit; font-size: 15px; min-height: 42px; padding: 8px 14px; border-radius: 12px; border: 1px solid #1F1D18; background: #fff; color: #1F1D18; }
+  .gap button:disabled { opacity: .5; }
+  .err { color: #A23B2A; font-size: 13px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<header class="top"><h1>Plan</h1><div class="sub">Die nächsten 4 Wochen</div></header>
+<div class="wrap">
+  <div class="auto" id="auto">Lade …</div>
+  <div class="cal" id="cal"></div>
+  <div id="days"></div>
+</div>
+<script src="/nav.js"></script>
+<script>
+const KIND = { carousel: "Carousel", image: "Bild", story: "Story", reel: "Reel" };
+const STATUS = { draft: "Entwurf", approved: "freigegeben", publishing: "wird gepostet", published: "veröffentlicht", failed: "fehlgeschlagen" };
+const DAYNAMES = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const key = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const time = (iso) => new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401) { location.href = "/login.html?next=/plan.html"; throw new Error("login"); }
+  if (!r.ok) throw new Error(data.error || r.status);
+  return data;
+}
+
+function renderAuto(info) {
+  const reel = info.reelDays.length ? info.reelDays.map((d) => DAYNAMES[d]).join(", ") : "keine";
+  document.getElementById("auto").innerHTML = info.dailyDecks
+    ? `<div class="row"><span class="k">Automatische Decks</span><span class="v"><b>an</b></span></div>
+       <div class="row"><span class="k">Wann</span><span class="v">jeden Tag um ${info.postHour}:00, immer ${info.lookaheadDays} Tage im Voraus (stündlich geprüft)</span></div>
+       <div class="row"><span class="k">Reel statt Carousel</span><span class="v">${esc(reel)}</span></div>
+       <div class="row"><span class="k">Story</span><span class="v">${info.story ? "1 Stunde nach dem Post" : "aus"}</span></div>
+       <div class="row"><span class="k">Budget</span><span class="v">bis ${info.budgetMaxEur} €</span></div>
+       <div class="row"><span class="k">Instagram</span><span class="v">${info.instagram ? "verbunden" : '<span class="off">nicht verbunden</span>'}</span></div>`
+    : `<div class="row"><span class="k">Automatische Decks</span><span class="v off"><b>aus</b></span></div>
+       <div class="row"><span class="k">Einschalten</span><span class="v">DAILY_DECKS=true in der .env</span></div>`;
+}
+
+async function load() {
+  const [info, items] = await Promise.all([api("GET", "/api/plan/info"), api("GET", "/api/queue")]);
+  renderAuto(info);
+
+  const posts = items.filter((i) => i.kind !== "comment_reply" && i.status !== "rejected");
+  const byDay = new Map();
+  for (const it of posts) {
+    const k = key(new Date(it.scheduledAt));
+    if (!byDay.has(k)) byDay.set(k, []);
+    byDay.get(k).push(it);
+  }
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Array.from({ length: 28 }, (_, i) => { const d = new Date(today); d.setDate(d.getDate() + i); return d; });
+
+  // Kalender: 4 Wochen ab Montag dieser Woche, Punkt-Farbe = schlechtester Status des Tages
+  const rank = { failed: 0, draft: 1, approved: 2, publishing: 2, published: 3 };
+  const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const weeks = [];
+  for (let w = 0; w < 5; w++) {
+    const cells = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday); d.setDate(monday.getDate() + w * 7 + i);
+      const diff = Math.round((d - today) / 86400000);
+      if (diff >= 28) { cells.push('<span></span>'); continue; }
+      const list = (byDay.get(key(d)) || []).filter((x) => x.kind !== "story");
+      const worst = [...list].sort((a, b) => rank[a.status] - rank[b.status])[0];
+      const cls = ["wd", diff < 0 ? "past" : "", diff === 0 ? "today" : "", info.reelDays.includes(d.getDay()) ? "reel" : ""].join(" ");
+      cells.push(diff < 0 ? `<span class="${cls}">${d.getDate()}</span>`
+        : `<a class="${cls}" href="#d-${key(d)}">${d.getDate()}<i class="${worst ? worst.status : ""}"></i></a>`);
+    }
+    if (cells.some((c) => c !== '<span></span>')) weeks.push(`<div class="wk">${cells.join("")}</div>`);
+  }
+  document.getElementById("cal").innerHTML =
+    `<div class="head">${["Mo","Di","Mi","Do","Fr","Sa","So"].map((n) => `<span>${n}</span>`).join("")}</div>${weeks.join("")}
+     <div class="legend"><span><i style="background:#E9B949"></i>Entwurf</span><span><i style="background:#6BA368"></i>freigegeben</span><span><i style="background:#5B8DC9"></i>veröffentlicht</span><span><i style="background:#E2D9C6"></i>leer</span>${info.reelDays.length ? '<span><i style="background:#B6CFE8;border-radius:2px"></i>Reel-Tag</span>' : ""}</div>`;
+
+  document.getElementById("days").innerHTML = days.map((d, i) => {
+    const list = (byDay.get(key(d)) || []).sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
+    const title = i === 0 ? "Heute" : i === 1 ? "Morgen" : d.toLocaleDateString("de-DE", { weekday: "long" });
+    const date = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+    const reelDay = info.reelDays.includes(d.getDay());
+    const body = list.length
+      ? list.map((it) => `<a class="item" href="/queue.html">
+          ${(() => { const img = it.previewUrls.find((u) => !u.endsWith(".mp4")); return img ? `<img src="${img}" alt="" loading="lazy">` : `<div class="ph"></div>`; })()}
+          <div class="t"><b>${esc(it.label || KIND[it.kind])}</b><small>${KIND[it.kind] || it.kind} · ${time(it.scheduledAt)} Uhr</small></div>
+          <span class="pill ${it.status}">${STATUS[it.status] || it.status}</span></a>`).join("")
+      : i === 0
+        ? `<div class="gap">Heute nichts geplant.</div>`
+        : `<div class="gap"><span>Noch nichts geplant${reelDay ? " (Reel-Tag)" : ""}.</span><button data-day="${key(d)}">Deck holen</button></div><div class="err"></div>`;
+    return `<section class="day" id="d-${key(d)}"><h2>${title}<span>${date}</span></h2>${body}</section>`;
+  }).join("");
+}
+
+document.getElementById("days").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-day]");
+  if (!btn) return;
+  btn.disabled = true; btn.textContent = "Lädt (bis 2 Min) …";
+  try {
+    await api("POST", "/api/queue/fetch-deck", { day: btn.dataset.day });
+    await load();
+    if (window.updateNavBadge) window.updateNavBadge();
+  } catch (err) {
+    btn.disabled = false; btn.textContent = "Deck holen";
+    btn.closest(".day").querySelector(".err").textContent = err.message;
+  }
+});
+
+load();
+setInterval(() => { if (!document.hidden && !document.querySelector("button[data-day]:disabled")) load(); }, 60000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+</script>
+</body>
+</html>

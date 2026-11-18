@@ -1,12 +1,12 @@
 import * as path from "path";
 import express from "express";
 import { nanoid } from "nanoid";
-import { config } from "./config";
+import { config, instagramConfigured } from "./config";
 import { renderDeckTech, runPipeline } from "./pipeline";
 import { createJob, getJob, listJobs, updateJob } from "./jobs/jobStore";
 import { GeneratedTexts, Job } from "./types";
 import { ensureJpegs } from "./render/renderer";
-import { buildReel, reelNarration } from "./render/reel";
+import { buildReel, reelCoverPath, reelScript } from "./render/reel";
 import {
   addItem,
   getItem,
@@ -16,8 +16,8 @@ import {
   QueueKind,
   updateItem,
 } from "./queue/queueStore";
-import { mediaUrls, startScheduler } from "./queue/scheduler";
-import { fetchNextDeck } from "./sourcing/dailyDeck";
+import { mediaUrls, runSchedulerNow, startScheduler } from "./queue/scheduler";
+import { fetchNextDeck, planInfo } from "./sourcing/dailyDeck";
 import * as fs from "fs";
 import { authEnabled, handleLogin, handleLogout, requireAuth } from "./auth";
 import {
@@ -266,16 +266,14 @@ app.post("/api/queue", async (req, res) => {
     let label = body.label as string | undefined;
 
     if (kind === "reel" && body.jobId) {
-      // Reel aus einem Deck-Tech erzeugen (Karte als Hauptmotiv + Slides)
+      // Animiertes Reel aus dem Deck (eigene Szenen, kein Slide-Zoom)
       const job = getJob(body.jobId);
       if (!job?.result) return res.status(404).json({ error: "Job (with result) not found" });
-      const hook = String(body.hook ?? job.result.texts.tagline ?? "").trim();
-      const video = await buildReel(job.result.deck, job.result.slideFiles, job.result.jobDir, {
-        hook,
-        slides: Array.isArray(body.slides) ? body.slides : undefined,
-        voiceText: reelNarration(hook, job.result.deck, job.result.texts.tagline),
-      });
-      mediaFiles = [video];
+      const hookIn = typeof body.hook === "string" ? body.hook : undefined;
+      const video = await buildReel(job.result.deck, job.result.jobDir, { hook: hookIn });
+      const hook = reelScript(job.result.deck, hookIn).hook;
+      const cover = reelCoverPath(video);
+      mediaFiles = fs.existsSync(cover) ? [video, cover] : [video];
       caption = caption ?? job.result.caption;
       label = label ?? `${job.result.deckSummary?.commander ?? ""} · "${hook}"`;
     } else if (kind === "reel") {
@@ -336,9 +334,14 @@ app.patch("/api/queue/:id", (req, res) => {
   res.json(toQueueSummary(updateItem(item.id, patch)!));
 });
 
-app.post("/api/queue/fetch-deck", async (_req, res) => {
+app.get("/api/plan/info", (_req, res) => {
+  res.json({ ...planInfo(), instagram: instagramConfigured() });
+});
+
+app.post("/api/queue/fetch-deck", async (req, res) => {
   try {
-    res.json(await fetchNextDeck());
+    const day = typeof req.body?.day === "string" ? req.body.day : undefined;
+    res.json(await fetchNextDeck(day));
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -367,6 +370,25 @@ app.post("/api/queue/:id/approve", (req, res) => {
   const problem = validateForApproval(item);
   if (problem) return res.status(400).json({ error: problem });
   res.json(toQueueSummary(updateItem(item.id, { status: "approved", error: undefined })!));
+});
+
+/** Freigeben und sofort veroeffentlichen */
+app.post("/api/queue/:id/post-now", (req, res) => {
+  const item = getItem(req.params.id);
+  if (!item) return res.status(404).json({ error: "not found" });
+  if (!["draft", "approved", "failed"].includes(item.status)) {
+    return res.status(409).json({ error: `cannot post item in status ${item.status}` });
+  }
+  if (!instagramConfigured()) return res.status(400).json({ error: "Instagram ist nicht verbunden" });
+  const problem = validateForApproval(item);
+  if (problem) return res.status(400).json({ error: problem });
+  const updated = updateItem(item.id, {
+    status: "approved",
+    scheduledAt: new Date().toISOString(),
+    error: undefined,
+  })!;
+  runSchedulerNow();
+  res.json(toQueueSummary(updated));
 });
 
 app.post("/api/queue/:id/reject", (req, res) => {

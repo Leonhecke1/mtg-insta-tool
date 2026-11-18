@@ -50,8 +50,22 @@ export const config = {
   dailyLookaheadDays: parseInt(optional("DAILY_LOOKAHEAD_DAYS", "3"), 10),
   dailyBudgetMaxEur: parseFloat(optional("DAILY_BUDGET_MAX_EUR", "250")),
   dailyStory: optional("DAILY_STORY", "true") === "true",
+  // Wochentage, an denen statt Carousel ein Reel kommt, z. B. "di,fr" (0 = So)
+  dailyReelDays: parseWeekdays(optional("DAILY_REEL_DAYS", "")),
   archidektOwnUsername: optional("ARCHIDEKT_OWN_USERNAME", "floating.mana"),
 };
+
+function parseWeekdays(s: string): number[] {
+  const names: Record<string, number> = {
+    so: 0, sun: 0, mo: 1, mon: 1, di: 2, tue: 2, mi: 3, wed: 3, do: 4, thu: 4, fr: 5, fri: 5, sa: 6, sat: 6,
+  };
+  return s
+    .split(/[\s,;]+/)
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean)
+    .map((t) => (/^\d$/.test(t) ? +t : names[t.slice(0, 3)] ?? names[t.slice(0, 2)]))
+    .filter((n): n is number => typeof n === "number" && n >= 0 && n <= 6);
+}
 
 export function instagramConfigured(): boolean {
   return Boolean(config.igUserId && config.igAccessToken && config.publicBaseUrl);

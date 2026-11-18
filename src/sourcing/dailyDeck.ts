@@ -8,7 +8,14 @@ import { fetchArchidektDeck } from "../parser/archidekt";
 import { runPipeline } from "../pipeline";
 import { createJob, listJobs, updateJob } from "../jobs/jobStore";
 import { ensureJpegs } from "../render/renderer";
-import { buildNewPostStory } from "../render/reel";
+import { buildNewPostStory, buildReel, reelCoverPath } from "../render/reel";
+
+/** Video + Titelbild (falls vorhanden) */
+async function reelMedia(deck: Parameters<typeof buildReel>[0], dir: string): Promise<string[]> {
+  const video = await buildReel(deck, dir);
+  const cover = reelCoverPath(video);
+  return fs.existsSync(cover) ? [video, cover] : [video];
+}
 import { notify } from "../push/push";
 import { addItem, listItems } from "../queue/queueStore";
 import { Job } from "../types";
@@ -234,14 +241,16 @@ async function draftForDay(when: Date): Promise<string | null> {
   const jpgs = await ensureJpegs(r.slideFiles.slice(0, 10));
   const label = r.deckSummary?.commander ?? job.id;
 
+  // An Reel-Tagen ersetzt ein animiertes Reel das Carousel
+  const reelDay = config.dailyReelDays.includes(when.getDay());
   addItem({
     id: nanoid(10),
-    kind: "carousel",
+    kind: reelDay ? "reel" : "carousel",
     status: "draft",
     createdAt: new Date().toISOString(),
     scheduledAt: when.toISOString(),
     mediaToken: nanoid(24),
-    mediaFiles: jpgs,
+    mediaFiles: reelDay ? await reelMedia(r.deck, r.jobDir) : jpgs,
     caption: r.caption,
     sourceJobId: job.id,
     label,
@@ -302,8 +311,19 @@ export function ensureDailyDrafts(): Promise<void> {
 }
 
 /** Button "Neues Deck holen": Entwurf fuer den naechsten freien Tag. */
-export function fetchNextDeck(): Promise<{ label: string; scheduledAt: string }> {
+export function fetchNextDeck(day?: string): Promise<{ label: string; scheduledAt: string }> {
   return serialized(async () => {
+    // Bestimmter Tag aus der Plan-Ansicht ("YYYY-MM-DD")
+    if (day) {
+      const m = day.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) throw new Error("Ungültiges Datum");
+      const when = new Date(+m[1], +m[2] - 1, +m[3], config.dailyPostHour, 0, 0, 0);
+      if (when.getTime() < Date.now()) throw new Error("Der Termin liegt in der Vergangenheit");
+      if (isDayTaken(when)) throw new Error("An diesem Tag ist schon ein Post geplant");
+      const label = await draftForDay(when);
+      if (!label) throw new Error("Kein passendes Deck gefunden, später nochmal versuchen");
+      return { label, scheduledAt: when.toISOString() };
+    }
     for (let offset = 1; offset <= 60; offset++) {
       const when = postTimeForOffset(offset);
       if (isDayTaken(when)) continue;
@@ -313,4 +333,16 @@ export function fetchNextDeck(): Promise<{ label: string; scheduledAt: string }>
     }
     throw new Error("Die nächsten 60 Tage sind schon verplant");
   });
+}
+
+/** Einstellungen des Automatismus fuer die Plan-Ansicht */
+export function planInfo() {
+  return {
+    dailyDecks: config.dailyDecks,
+    postHour: config.dailyPostHour,
+    lookaheadDays: config.dailyLookaheadDays,
+    story: config.dailyStory,
+    reelDays: config.dailyReelDays,
+    budgetMaxEur: config.dailyBudgetMaxEur,
+  };
 }
