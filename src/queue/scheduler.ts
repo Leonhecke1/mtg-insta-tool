@@ -11,6 +11,7 @@ import {
 } from "../instagram/client";
 import { draftReply } from "../llm/replyDrafter";
 import { refreshTokenIfDue } from "../instagram/token";
+import { isSpamComment } from "./spam";
 import { ensureDailyDrafts } from "../sourcing/dailyDeck";
 import { nanoid } from "nanoid";
 import {
@@ -89,13 +90,17 @@ async function pollComments(): Promise<void> {
     const ageH = (Date.now() - new Date(c.timestamp).getTime()) / 3600_000;
     if (ageH > 7 * 24) continue;
 
+    // 1. Kostenlose Regel-Erkennung, 2. (nur mit API-Key) LLM-Antwortentwurf
+    const ruleSpam = isSpamComment(c.text, c.username);
     let replyText = "";
-    try {
-      replyText = await draftReply(c.text, c.username, c.mediaCaption);
-    } catch (err) {
-      console.error("[scheduler] reply draft failed:", err);
+    if (!ruleSpam && config.anthropicApiKey) {
+      try {
+        replyText = await draftReply(c.text, c.username, c.mediaCaption);
+      } catch (err) {
+        console.error("[scheduler] reply draft failed:", err);
+      }
     }
-    if (replyText === "SKIP") {
+    if (ruleSpam || replyText === "SKIP") {
       if (config.autoHideSpam) {
         await hideComment(c.id)
           .then(() => console.log(`[scheduler] hid spam comment by @${c.username}`))
@@ -103,6 +108,8 @@ async function pollComments(): Promise<void> {
       }
       continue;
     }
+    // Ohne LLM gibt es keine Antwortentwuerfe - beantworten musst du selbst
+    if (!config.anthropicApiKey) continue;
 
     // Auto-Freigabe nur fuer frische Kommentare mit fertigem Antworttext
     const auto = config.autoReply && replyText.trim() !== "" && ageH <= 48;

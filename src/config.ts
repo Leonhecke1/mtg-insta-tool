@@ -40,6 +40,10 @@ export const config = {
   // Kommentare, die das LLM als Spam/Bot erkennt, automatisch ausblenden
   autoHideSpam: optional("AUTO_HIDE_SPAM", "true") === "true",
 
+  // --- Voice-over fuer Reels (Piper, lokal und kostenlos) ---
+  piperBin: optional("PIPER_BIN"),
+  piperModel: optional("PIPER_MODEL"),
+
   // --- Taeglicher Deck-Post (Entwuerfe aus Archidekt) ---
   dailyDecks: optional("DAILY_DECKS", "false") === "true",
   dailyPostHour: parseInt(optional("DAILY_POST_HOUR", "19"), 10),

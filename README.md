@@ -239,3 +239,20 @@ weil die API das nicht anbietet und Bots dafür gesperrt werden.
 
 Die tägliche Story ist eine „NEW POST“-Grafik mit dem Cover. Beiträge teilen und
 Link-Sticker kann die API nicht.
+
+## Komplett ohne Kosten
+
+Ohne `ANTHROPIC_API_KEY` läuft alles kostenlos:
+
+- **Texte:** Vorlagen aus den Kartendaten (`src/llm/fallback.ts`). Sie erkennen Archetyp,
+  Tribal, Schlüsselkarten, Ramp/Draw/Removal und die Commander-Fähigkeit.
+- **Spam:** Regeln in `src/queue/spam.ts`, z. B. „send me this post“ oder „promote it on @“.
+  Treffer werden ausgeblendet. Antwortentwürfe gibt es ohne Key nicht.
+- **Voice-over für Reels:** [Piper](https://github.com/rhasspy/piper) lokal auf dem Server.
+
+```
+PIPER_BIN=/opt/piper/piper
+PIPER_MODEL=/opt/piper/en_US-ryan-medium.onnx   # Voice: .onnx + .onnx.json im selben Ordner
+```
+
+Ohne Piper bleiben Reels stumm.

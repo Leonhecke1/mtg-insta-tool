@@ -1,8 +1,9 @@
 import * as fs from "fs";
 import * as path from "path";
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import puppeteer, { Browser } from "puppeteer";
+import { config } from "../config";
 import { Deck } from "../types";
 import { escapeHtml } from "./components";
 import { FONT_STACK } from "./theme";
@@ -31,6 +32,8 @@ export interface ReelOptions {
   slides?: number[];
   hookSeconds?: number;
   slideSeconds?: number;
+  /** Sprechtext fuer das Voice-over (nur mit PIPER_BIN + PIPER_MODEL) */
+  voiceText?: string;
 }
 
 function toDataUri(file: string): string {
@@ -102,10 +105,17 @@ export async function buildReel(
   if (!opts.hook.trim()) throw new Error("Reel needs a hook text");
 
   const hookSec = opts.hookSeconds ?? 3.5;
-  const slideSec = opts.slideSeconds ?? 2.5;
+  let slideSec = opts.slideSeconds ?? 2.5;
   const picked = (opts.slides ?? [2, 3, 4, 5, 6])
     .map((n) => slideFiles[n - 1])
     .filter((f): f is string => Boolean(f));
+
+  // Optionales Voice-over: Video so lang machen, dass die Sprache reinpasst
+  const voice = opts.voiceText?.trim() ? await synthesizeVoice(opts.voiceText, jobDir) : null;
+  if (voice && picked.length) {
+    const needed = voice.seconds + 0.8 - hookSec;
+    slideSec = Math.max(slideSec, needed / picked.length);
+  }
 
   const frames = await renderFrames(
     [hookFrameHtml(deck, opts.hook), ...picked.map((f) => slideFrameHtml(deck, f))],
@@ -116,7 +126,12 @@ export async function buildReel(
 
   const args: string[] = ["-y"];
   frames.forEach((f) => args.push("-i", f));
-  args.push("-f", "lavfi", "-t", String(total), "-i", "anullsrc=r=44100:cl=stereo");
+  if (voice) {
+    // Sprache mit Stille bis zum Videoende auffuellen
+    args.push("-i", voice.file);
+  } else {
+    args.push("-f", "lavfi", "-t", String(total), "-i", "anullsrc=r=44100:cl=stereo");
+  }
 
   const chains = frames.map((_, i) => {
     const n = Math.round(durations[i] * FPS);
@@ -124,12 +139,15 @@ export async function buildReel(
     return `[${i}:v]scale=${W * 2}:${H * 2},zoompan=z='1+0.06*on/${n}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${n}:s=${W}x${H}:fps=${FPS},setsar=1[v${i}]`;
   });
   const concat = `${frames.map((_, i) => `[v${i}]`).join("")}concat=n=${frames.length}:v=1:a=0,format=yuv420p[v]`;
+  const audio = voice
+    ? `[${frames.length}:a]aresample=44100,aformat=channel_layouts=stereo,adelay=400|400,apad,atrim=0:${total}[a]`
+    : `[${frames.length}:a]anull[a]`;
 
   const out = path.join(jobDir, "reel.mp4");
   args.push(
-    "-filter_complex", [...chains, concat].join(";"),
+    "-filter_complex", [...chains, concat, audio].join(";"),
     "-map", "[v]",
-    "-map", `${frames.length}:a`,
+    "-map", "[a]",
     "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-r", String(FPS),
     "-c:a", "aac", "-b:a", "128k",
     "-shortest", "-movflags", "+faststart",
@@ -138,7 +156,49 @@ export async function buildReel(
 
   await run(ffmpegPath, args, { maxBuffer: 64 * 1024 * 1024 });
   frames.forEach((f) => fs.rmSync(f, { force: true }));
+  if (voice) fs.rmSync(voice.file, { force: true });
   return out;
+}
+
+/**
+ * Text-to-Speech mit Piper (https://github.com/rhasspy/piper), laeuft lokal
+ * und kostenlos. Ohne PIPER_BIN/PIPER_MODEL gibt es kein Voice-over.
+ */
+async function synthesizeVoice(
+  text: string,
+  jobDir: string
+): Promise<{ file: string; seconds: number } | null> {
+  if (!config.piperBin || !config.piperModel || !ffmpegPath) return null;
+  const file = path.join(jobDir, "reel-voice.wav");
+  await new Promise<void>((resolve, reject) => {
+    const p = spawn(config.piperBin, ["--model", config.piperModel, "--output_file", file]);
+    let stderr = "";
+    p.stderr.on("data", (d) => (stderr += d));
+    p.on("error", reject);
+    p.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`piper exit ${code}: ${stderr.slice(-300)}`))));
+    p.stdin.end(text.replace(/\s+/g, " "));
+  });
+  // Dauer aus ffmpeg-Ausgabe lesen ("Duration: 00:00:12.34")
+  const probe = await run(ffmpegPath, ["-i", file], { maxBuffer: 8 * 1024 * 1024 }).catch(
+    (e: { stderr?: string }) => ({ stderr: e.stderr ?? "" })
+  );
+  const m = String(probe.stderr).match(/Duration: (\d+):(\d+):([\d.]+)/);
+  const seconds = m ? +m[1] * 3600 + +m[2] * 60 + parseFloat(m[3]) : 12;
+  return { file, seconds };
+}
+
+/** Sprechtext fuers Reel: Hook, Plan, Eckdaten. Ohne Sonderzeichen fuer TTS. */
+export function reelNarration(hook: string, deck: Deck, tagline: string): string {
+  const price = Math.round(deck.totalPriceEur);
+  return [
+    hook,
+    tagline,
+    `${deck.cardCount} cards, about ${price} euros.`,
+    "Full deck tech on the profile.",
+  ]
+    .join(" ")
+    .replace(/[€&]/g, (c) => (c === "€" ? " euros" : " and "))
+    .replace(/[^\p{L}\p{N}\s.,!?'+/-]/gu, " ");
 }
 
 /**

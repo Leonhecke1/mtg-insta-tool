@@ -6,7 +6,7 @@ import { renderDeckTech, runPipeline } from "./pipeline";
 import { createJob, getJob, listJobs, updateJob } from "./jobs/jobStore";
 import { GeneratedTexts, Job } from "./types";
 import { ensureJpegs } from "./render/renderer";
-import { buildReel } from "./render/reel";
+import { buildReel, reelNarration } from "./render/reel";
 import {
   addItem,
   getItem,
@@ -240,6 +240,7 @@ app.post("/api/queue", async (req, res) => {
       const video = await buildReel(job.result.deck, job.result.slideFiles, job.result.jobDir, {
         hook,
         slides: Array.isArray(body.slides) ? body.slides : undefined,
+        voiceText: reelNarration(hook, job.result.deck, job.result.texts.tagline),
       });
       mediaFiles = [video];
       caption = caption ?? job.result.caption;
