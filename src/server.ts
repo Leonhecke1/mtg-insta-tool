@@ -5,9 +5,33 @@ import { config } from "./config";
 import { renderDeckTech, runPipeline } from "./pipeline";
 import { createJob, getJob, listJobs, updateJob } from "./jobs/jobStore";
 import { GeneratedTexts, Job } from "./types";
+import { ensureJpegs } from "./render/renderer";
+import {
+  addItem,
+  getItem,
+  getItemByToken,
+  listItems,
+  QueueItem,
+  QueueKind,
+  updateItem,
+} from "./queue/queueStore";
+import { mediaUrls, startScheduler } from "./queue/scheduler";
+import * as fs from "fs";
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
+
+// --- Oeffentliche Media-URLs fuer die Instagram-API (VOR Basic Auth) ---
+// Instagram laedt Bilder/Videos selbst per URL. Nur Dateien von Queue-Items
+// sind erreichbar, und nur ueber deren unratbaren Token.
+app.get("/media/:token/:file", (req, res) => {
+  const item = getItemByToken(req.params.token);
+  const index = parseInt(req.params.file, 10);
+  if (!item || item.status === "rejected" || !(index >= 0) || !item.mediaFiles[index]) {
+    return res.status(404).end();
+  }
+  res.sendFile(item.mediaFiles[index]);
+});
 
 // --- Basic Auth (Tool laeuft oeffentlich auf einem Server, siehe README) ---
 if (config.basicAuthUser && config.basicAuthPass) {
@@ -158,6 +182,147 @@ app.post("/api/jobs/:id/texts", async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Freigabe-Queue (UI: /queue.html). Nichts wird ohne "approve" veroeffentlicht.
+// ---------------------------------------------------------------------------
+
+function toQueueSummary(item: QueueItem) {
+  return {
+    ...item,
+    mediaFiles: undefined,
+    previewUrls: item.mediaFiles.map(
+      (f, i) => `/media/${item.mediaToken}/${i}${path.extname(f)}`
+    ),
+    publicUrls: config.publicBaseUrl ? mediaUrls(item) : [],
+  };
+}
+
+function validateForApproval(item: QueueItem): string | null {
+  if (item.kind === "comment_reply") {
+    return item.replyText?.trim() ? null : "Reply text is empty";
+  }
+  if (item.mediaFiles.length === 0) return "No media";
+  if (item.kind === "carousel" && item.mediaFiles.length > 10) return "Max. 10 slides per carousel";
+  if (item.mediaFiles.some((f) => !fs.existsSync(f))) return "Media file missing on disk";
+  return null;
+}
+
+app.get("/api/queue", (_req, res) => {
+  res.json(listItems().map(toQueueSummary));
+});
+
+/**
+ * Neues Item aus einem fertigen Job anlegen (Status: draft).
+ * Body: { jobId, kind: "carousel"|"image"|"story", scheduledAt, slides?: number[] (1-basiert), caption? }
+ *   oder { kind: "reel", videoFile (Pfad relativ zu OUT_DIR), scheduledAt, caption }
+ */
+app.post("/api/queue", async (req, res) => {
+  const body = req.body ?? {};
+  const kind = body.kind as QueueKind;
+  if (!["carousel", "image", "story", "reel"].includes(kind)) {
+    return res.status(400).json({ error: "kind must be carousel|image|story|reel" });
+  }
+  const scheduledAt = new Date(body.scheduledAt ?? Date.now());
+  if (isNaN(scheduledAt.getTime())) return res.status(400).json({ error: "invalid scheduledAt" });
+
+  try {
+    let mediaFiles: string[] = [];
+    let caption: string | undefined = body.caption;
+    let label = body.label as string | undefined;
+
+    if (kind === "reel") {
+      const video = path.resolve(config.outDir, String(body.videoFile ?? ""));
+      if (!video.startsWith(config.outDir + path.sep) || !fs.existsSync(video)) {
+        return res.status(400).json({ error: "videoFile not found in OUT_DIR" });
+      }
+      mediaFiles = [video];
+    } else {
+      const job = getJob(body.jobId);
+      if (!job?.result) return res.status(404).json({ error: "Job (with result) not found" });
+      let pngs = job.result.slideFiles;
+      if (Array.isArray(body.slides) && body.slides.length) {
+        pngs = body.slides.map((n: number) => pngs[n - 1]).filter(Boolean);
+      }
+      if (kind !== "carousel") pngs = pngs.slice(0, 1);
+      mediaFiles = await ensureJpegs(pngs);
+      caption = caption ?? job.result.caption;
+      label = label ?? job.result.deckSummary?.commander;
+    }
+
+    const item: QueueItem = {
+      id: nanoid(10),
+      kind,
+      status: "draft",
+      createdAt: new Date().toISOString(),
+      scheduledAt: scheduledAt.toISOString(),
+      mediaToken: nanoid(24),
+      mediaFiles,
+      caption: kind === "story" ? undefined : caption,
+      sourceJobId: body.jobId,
+      label,
+    };
+    addItem(item);
+    res.json(toQueueSummary(item));
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.patch("/api/queue/:id", (req, res) => {
+  const item = getItem(req.params.id);
+  if (!item) return res.status(404).json({ error: "not found" });
+  if (!["draft", "approved", "failed"].includes(item.status)) {
+    return res.status(409).json({ error: `cannot edit item in status ${item.status}` });
+  }
+  const b = req.body ?? {};
+  const patch: Partial<QueueItem> = {};
+  if (typeof b.caption === "string") patch.caption = b.caption;
+  if (typeof b.replyText === "string") patch.replyText = b.replyText;
+  if (b.scheduledAt) {
+    const d = new Date(b.scheduledAt);
+    if (isNaN(d.getTime())) return res.status(400).json({ error: "invalid scheduledAt" });
+    patch.scheduledAt = d.toISOString();
+  }
+  // Jede inhaltliche Aenderung braucht eine neue Freigabe
+  if (item.status !== "draft") patch.status = "draft";
+  res.json(toQueueSummary(updateItem(item.id, patch)!));
+});
+
+app.post("/api/queue/approve-all", (_req, res) => {
+  const approved: string[] = [];
+  const skipped: { id: string; reason: string }[] = [];
+  for (const item of listItems().filter((i) => i.status === "draft")) {
+    const problem = validateForApproval(item);
+    if (problem) skipped.push({ id: item.id, reason: problem });
+    else {
+      updateItem(item.id, { status: "approved" });
+      approved.push(item.id);
+    }
+  }
+  res.json({ approved, skipped });
+});
+
+app.post("/api/queue/:id/approve", (req, res) => {
+  const item = getItem(req.params.id);
+  if (!item) return res.status(404).json({ error: "not found" });
+  if (!["draft", "failed"].includes(item.status)) {
+    return res.status(409).json({ error: `cannot approve item in status ${item.status}` });
+  }
+  const problem = validateForApproval(item);
+  if (problem) return res.status(400).json({ error: problem });
+  res.json(toQueueSummary(updateItem(item.id, { status: "approved", error: undefined })!));
+});
+
+app.post("/api/queue/:id/reject", (req, res) => {
+  const item = getItem(req.params.id);
+  if (!item) return res.status(404).json({ error: "not found" });
+  if (["publishing", "published"].includes(item.status)) {
+    return res.status(409).json({ error: `cannot reject item in status ${item.status}` });
+  }
+  res.json(toQueueSummary(updateItem(item.id, { status: "rejected" })!));
+});
+
 app.listen(config.port, () => {
   console.log(`[server] mtg-insta-tool running on http://localhost:${config.port}`);
+  startScheduler();
 });

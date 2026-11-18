@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>floating.mana — Freigabe</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 16px 48px; }
+  .bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 8px 0 24px; }
+  .card { background: #fff; border: 1px solid #E2D9C6; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h3 { margin: 0 0 4px; font-size: 16px; }
+  .meta { color: #7A7263; font-size: 13px; margin-bottom: 10px; }
+  .thumbs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 10px; }
+  .thumbs img { height: 160px; border-radius: 4px; border: 1px solid #E2D9C6; }
+  textarea { width: 100%; min-height: 90px; font: inherit; padding: 8px; border: 1px solid #D5CBB5; border-radius: 6px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+  button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid #1F1D18; background: #fff; cursor: pointer; }
+  button.primary { background: #1F1D18; color: #F4EFE4; }
+  .pill { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: #EDE5D3; margin-left: 6px; }
+  .pill.approved { background: #D5E8D0; } .pill.published { background: #CFE0F2; }
+  .pill.failed { background: #F4D2CC; } .pill.rejected { background: #ddd; }
+  .quote { background: #F4EFE4; padding: 8px 10px; border-radius: 6px; margin-bottom: 8px; }
+  .err { color: #A23B2A; font-size: 13px; }
+  details { margin-bottom: 24px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Freigabe</h1>
+  <p class="subtitle">Nur freigegebene Posts, Stories und Antworten werden veröffentlicht. <a href="/">Generator</a></p>
+</header>
+<div class="wrap">
+  <div class="bar">
+    <button class="primary" id="approveAll">Alle Entwürfe freigeben</button>
+    <label><input type="checkbox" id="showDone" /> Erledigte anzeigen</label>
+  </div>
+
+  <details>
+    <summary>Neuen Post aus einem Deck-Tech einplanen</summary>
+    <div class="card">
+      <div class="row">
+        <select id="jobSel"></select>
+        <select id="kindSel">
+          <option value="carousel">Carousel</option>
+          <option value="story">Story (1. Slide)</option>
+          <option value="image">Einzelbild</option>
+        </select>
+        <input type="datetime-local" id="whenInp" />
+        <button id="addBtn">Als Entwurf anlegen</button>
+      </div>
+      <div class="err" id="addErr"></div>
+    </div>
+  </details>
+
+  <div id="list"></div>
+</div>
+<script>
+const KIND = { carousel: "Carousel", image: "Bild", story: "Story", reel: "Reel", comment_reply: "Antwort" };
+const STATUS = { draft: "Entwurf", approved: "freigegeben", publishing: "wird gepostet", published: "veröffentlicht", failed: "fehlgeschlagen", rejected: "abgelehnt" };
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const toLocal = (iso) => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.status);
+  return data;
+}
+
+async function load() {
+  const items = await api("GET", "/api/queue");
+  const showDone = document.getElementById("showDone").checked;
+  const visible = items.filter((i) => showDone || !["published", "rejected"].includes(i.status));
+  const list = document.getElementById("list");
+  list.innerHTML = visible.length ? "" : "<p>Nichts offen.</p>";
+  for (const it of visible) list.appendChild(render(it));
+}
+
+function render(it) {
+  const el = document.createElement("div");
+  el.className = "card";
+  const editable = ["draft", "approved", "failed"].includes(it.status);
+  const isReply = it.kind === "comment_reply";
+  el.innerHTML = `
+    <h3>${esc(KIND[it.kind])} · ${esc(it.label || "")}<span class="pill ${it.status}">${esc(STATUS[it.status])}</span></h3>
+    <div class="meta">${isReply ? "" : "Geplant: " + new Date(it.scheduledAt).toLocaleString("de-DE")}</div>
+    ${it.previewUrls.length ? `<div class="thumbs">${it.previewUrls.map((u) => `<img src="${u}" loading="lazy">`).join("")}</div>` : ""}
+    ${isReply ? `<div class="quote"><b>@${esc(it.commentUsername)}:</b> ${esc(it.commentText)}</div>` : ""}
+    ${it.kind === "story" ? "" : `<textarea ${editable ? "" : "disabled"}>${esc(isReply ? it.replyText : it.caption)}</textarea>`}
+    ${it.error ? `<div class="err">${esc(it.error)}</div>` : ""}
+    <div class="row">
+      ${!isReply && editable ? `<input type="datetime-local" value="${toLocal(it.scheduledAt)}">` : ""}
+      ${editable && it.status !== "approved" ? `<button class="primary" data-a="approve">Freigeben</button>` : ""}
+      ${editable ? `<button data-a="save">Speichern</button><button data-a="reject">Ablehnen</button>` : ""}
+    </div>`;
+  el.addEventListener("click", async (e) => {
+    const a = e.target.dataset && e.target.dataset.a;
+    if (!a) return;
+    try {
+      if (a === "save" || a === "approve") {
+        const ta = el.querySelector("textarea");
+        const dt = el.querySelector('input[type="datetime-local"]');
+        const patch = {};
+        if (ta) patch[isReply ? "replyText" : "caption"] = ta.value;
+        if (dt) patch.scheduledAt = new Date(dt.value).toISOString();
+        await api("PATCH", `/api/queue/${it.id}`, patch);
+      }
+      if (a === "approve") await api("POST", `/api/queue/${it.id}/approve`);
+      if (a === "reject") await api("POST", `/api/queue/${it.id}/reject`);
+      load();
+    } catch (err) { alertBox(el, err.message); }
+  });
+  return el;
+}
+
+function alertBox(el, msg) {
+  let e = el.querySelector(".err.live");
+  if (!e) { e = document.createElement("div"); e.className = "err live"; el.appendChild(e); }
+  e.textContent = msg;
+}
+
+document.getElementById("approveAll").onclick = async () => {
+  const r = await api("POST", "/api/queue/approve-all");
+  if (r.skipped.length) document.getElementById("list").insertAdjacentHTML("afterbegin", `<p class="err">${r.skipped.length} Entwurf/Entwürfe übersprungen (z. B. leere Antwort).</p>`);
+  load();
+};
+document.getElementById("showDone").onchange = load;
+
+(async () => {
+  const jobs = await api("GET", "/api/jobs");
+  document.getElementById("jobSel").innerHTML = jobs.filter((j) => j.status === "ready")
+    .map((j) => `<option value="${j.id}">${esc(j.deckSummary?.commander || j.id)}</option>`).join("");
+  const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(19, 0, 0, 0);
+  document.getElementById("whenInp").value = toLocal(d.toISOString());
+})();
+document.getElementById("addBtn").onclick = async () => {
+  try {
+    await api("POST", "/api/queue", {
+      jobId: document.getElementById("jobSel").value,
+      kind: document.getElementById("kindSel").value,
+      scheduledAt: new Date(document.getElementById("whenInp").value).toISOString(),
+    });
+    document.getElementById("addErr").textContent = "";
+    load();
+  } catch (err) { document.getElementById("addErr").textContent = err.message; }
+};
+
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

@@ -165,3 +165,24 @@ die einzige Datenquelle ist.
 - Kein automatischer Instagram-Publish (siehe oben) - `SPEC.md`s
   "Instagram-Publishing"-Abschnitt beschreibt einen Graph-API-Flow, der
   bewusst nicht Teil dieses Tools ist.
+
+## Auto-Publishing mit Freigabe
+
+Freigabe-Seite: `/queue.html`. Nur freigegebene Einträge werden veröffentlicht.
+Der Scheduler läuft im Server-Prozess. Er postet freigegebene Carousels,
+Bilder, Stories und Reels zur geplanten Zeit und legt alle 15 min
+Antwort-Entwürfe auf neue Kommentare unter eigenen Posts an.
+
+`.env`:
+
+```
+IG_USER_ID=...            # Instagram-Professional-Account-ID
+IG_ACCESS_TOKEN=...       # Long-lived Token ("Instagram API with Instagram Login"), läuft nach 60 Tagen ab
+IG_API_VERSION=v23.0      # gegen aktuelle Meta-Doku prüfen
+PUBLIC_BASE_URL=https://dein-server.de   # öffentlich erreichbar, Instagram lädt /media/<token>/<n>.jpg
+SCHEDULER_INTERVAL_SEC=60
+COMMENT_POLL_MINUTES=15
+```
+
+Ohne diese Variablen ist Auto-Publishing deaktiviert. Die Seite funktioniert trotzdem,
+es wird nur nichts gepostet.
