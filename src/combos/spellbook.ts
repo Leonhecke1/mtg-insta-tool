@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { config } from "../config";
 import { cardImages, scryfall } from "../news/news";
+import seedJson from "./seed.json";
 
 /**
  * Commander Spellbook (commanderspellbook.com): oeffentliche, kostenlose API mit
@@ -43,13 +44,42 @@ export function comboIdFrom(input: string): string | null {
   return m ? m[1] : null;
 }
 
+/** Fehler, bei dem der lokale Vorrat (seed.json) einspringen darf */
+class SpellbookUnavailable extends Error {}
+
 async function spellbook<T = any>(pathAndQuery: string): Promise<T> {
-  const res = await fetch(`${API}${pathAndQuery}`, { headers: { "User-Agent": UA, Accept: "application/json" } });
-  const body: any = await res.json().catch(() => ({}));
+  let res: Response;
+  try {
+    res = await fetch(`${API}${pathAndQuery}`, { headers: { "User-Agent": UA, Accept: "application/json" } });
+  } catch (err) {
+    throw new SpellbookUnavailable(`Commander Spellbook nicht erreichbar: ${err instanceof Error ? err.message : err}`);
+  }
+  const text = await res.text();
+  let body: any = {};
+  try {
+    body = JSON.parse(text);
+  } catch {
+    /* HTML-Fehlerseite */
+  }
   if (res.status === 404) throw new Error("Combo auf Commander Spellbook nicht gefunden");
-  if (!res.ok) throw new Error(`Commander Spellbook ${res.status}: ${body?.detail ?? ""}`);
+  if (!res.ok) {
+    const why = body?.detail ?? text.replace(/<[^>]+>/g, " ").replace(/s+/g, " ").trim().slice(0, 160);
+    console.warn(`[combo] Commander Spellbook ${res.status} fuer ${pathAndQuery.slice(0, 80)}: ${why}`);
+    // 403/429/5xx: z. B. Sperre fuer Server-IPs -> lokaler Vorrat
+    throw new SpellbookUnavailable(`Commander Spellbook ${res.status}${why ? `: ${why}` : ""}`);
+  }
   return body as T;
 }
+
+/**
+ * Lokaler Vorrat: ~500 beliebte Combos (2-3 Karten, Commander-legal, <= 40 EUR),
+ * gleiches Format wie die API. Springt ein, wenn Spellbook den Server blockt.
+ * Neu erzeugen: siehe README ("Combo-Vorrat aktualisieren").
+ */
+const SEED: any[] = seedJson as any[];
+
+/** Karten, die automatisch gewaehlte Combos nicht enthalten duerfen */
+const EXCLUDED_CARDS = ["Sol Ring"];
 
 const shortName = (n: string) => n.split(" // ")[0].split(",")[0].trim();
 const stripReminder = (t: string) => t.replace(/\([^)]*\)/g, "").replace(/[ \t]+/g, " ").trim();
@@ -123,7 +153,15 @@ async function loadCards(names: string[]): Promise<ComboCard[]> {
 export async function fetchCombo(idOrUrl: string): Promise<Combo> {
   const id = comboIdFrom(idOrUrl);
   if (!id) throw new Error("Bitte einen Commander-Spellbook-Link oder eine Combo-ID angeben");
-  const v = await spellbook(`/variants/${encodeURIComponent(id)}/`);
+  let v: any;
+  try {
+    v = await spellbook(`/variants/${encodeURIComponent(id)}/`);
+  } catch (err) {
+    if (!(err instanceof SpellbookUnavailable)) throw err;
+    v = SEED.find((x) => x.id === id);
+    if (!v) throw new Error(`${err.message}. Diese Combo ist nicht im lokalen Vorrat, Feld leer lassen für eine automatische Combo.`);
+    console.warn(`[combo] ${id} aus dem lokalen Vorrat`);
+  }
   const names: string[] = (v.uses ?? []).map((u: any) => u.card?.name).filter(Boolean);
   return toCombo(v, await loadCards(names));
 }
@@ -152,11 +190,31 @@ export function markComboUsed(id: string): void {
 export async function pickCombo(maxPriceEur: number): Promise<Combo> {
   const used = new Set(posted());
   const q = `cards<=3 legal:commander price<=${Math.round(maxPriceEur)}`;
-  for (const offset of [0, 50, 100, 150]) {
-    const r: any = await spellbook(`/variants/?q=${encodeURIComponent(q)}&ordering=-popularity&limit=50&offset=${offset}`);
-    for (const v of r.results ?? []) {
+  const pages: (() => Promise<any[]>)[] = [0, 50, 100, 150].map((offset) => async () =>
+    (await spellbook<any>(`/variants/?q=${encodeURIComponent(q)}&ordering=-popularity&limit=50&offset=${offset}`)).results ?? []
+  );
+  // Fallback: lokaler Vorrat, nach Beliebtheit sortiert und im Budget
+  const fromSeed = async () =>
+    SEED.filter((v) => v.prices?.cardmarket == null || Number(v.prices.cardmarket) <= maxPriceEur).sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
+  let usingSeed = false;
+  for (let i = 0; i < pages.length; i++) {
+    let results: any[];
+    try {
+      results = usingSeed ? [] : await pages[i]();
+    } catch (err) {
+      if (!(err instanceof SpellbookUnavailable)) throw err;
+      console.warn(`[combo] ${err.message} -> lokaler Vorrat`);
+      usingSeed = true;
+      results = await fromSeed();
+      i = pages.length; // nach dem Vorrat nicht weiter blaettern
+    }
+    for (const v of results) {
       const names = (v.uses ?? []).map((u: any) => u.card?.name).sort().join("+");
       if (used.has(v.id) || used.has(names)) continue;
+      // Sol Ring gehoert fuer floating.mana verboten, also auch nicht in Combos
+      if (EXCLUDED_CARDS.some((x) => names.split("+").includes(x))) continue;
+      // Max. Bracket 3: keine "Ruthless"- (R, cEDH) und "Powerful"-Combos (P) automatisch
+      if (["R", "P"].includes(v.bracketTag)) continue;
       if (!(v.description ?? "").trim() || !(v.produces ?? []).length) continue;
       used.add(names);
       return toCombo(v, await loadCards((v.uses ?? []).map((u: any) => u.card?.name)));

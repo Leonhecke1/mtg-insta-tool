@@ -346,3 +346,11 @@ zeigt nur offiziell gespoilerte Karten.
 Typ „Combo-Reel“ im Wochenplan oder unter „Eigenen Post einplanen“ (Spellbook-Link, leer = automatisch).
 Code: `src/combos/spellbook.ts` (API + Auswahl), `src/combos/comboDraft.ts` (Entwurf), `src/render/comboReel.ts` (Video).
 Der Sprechtext läuft wie bei Deck-Reels durch `src/skills/ttsText.ts` und die Aussprache-Regeln.
+
+### Combo-Vorrat
+
+Commander Spellbook blockt Anfragen vom Server (HTTP 403). Dann nimmt die App Combos aus
+`src/combos/seed.json` (~500 beliebte Combos, 2–3 Karten, ≤ 40 €). Automatisch gewählt werden
+nur Combos ohne Sol Ring und ohne die Spellbook-Kennungen R (cEDH) und P (sehr stark).
+Vorrat auffrischen: lokal `node scripts/update-combo-seed.js`, dann committen und pushen.
+Per Link geht auf dem Server nur, was im Vorrat steht.
