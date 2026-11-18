@@ -57,7 +57,7 @@ function trimClause(s: string, max: number): string {
   const at =Math.max(cut.lastIndexOf(", "), cut.lastIndexOf("; "), cut.lastIndexOf(": "));
   let out = (at > max * 0.45 ? cut.slice(0, at) : cut.replace(/\s+\S*$/, "")).trim();
   // nicht mit "... with a" enden
-  while (/\s(a|an|the|with|for|of|to|and|or|from|into|onto|your|that)$/i.test(out)) out = out.replace(/\s+\S+$/, "");
+  while (/\s(a|an|the|with|for|of|to|and|or|from|into|onto|your|that|you|it|by|in|on|at|as|is|are|its|their|then|if)$/i.test(out)) out = out.replace(/\s+\S+$/, "");
   return out;
 }
 interface TimedBeat extends Beat {
@@ -120,6 +120,17 @@ function resultShort(c: Combo): string {
   return r.length > 60 ? r.slice(0, 57).replace(/\s+\S*$/, "") + "…" : r;
 }
 
+/**
+ * Combo-Schritt zum Vorlesen: vollstaendig (der Text steht nicht mehr in einer Box),
+ * nur sehr lange Schritte am ersten Satzende kuerzen. Nie mitten im Satz abbrechen.
+ */
+function spokenStep(s: string): string {
+  const t = s.trim().replace(/\.$/, "");
+  if (t.length <= 180) return t;
+  const dot = t.indexOf(". ");
+  return dot > 30 ? t.slice(0, dot) : t;
+}
+
 export function comboScript(c: Combo): { beats: Beat[]; hookScreen: string } {
   const n = c.cards.length;
   const res = resultShort(c).replace(/…$/, "");
@@ -170,7 +181,7 @@ export function comboScript(c: Combo): { beats: Beat[]; hookScreen: string } {
       if (at >= 0 && at < first) [first, cardIdx] = [at, ki];
     });
     const lead = ["So here's the loop. First,", "Then", "After that,"][i] ?? "Then";
-    beats.push({ kind: "step", step: i, card: cardIdx >= 0 ? cardIdx : undefined, base: 2.8, say: end(`${lead} ${asYouClause(short)}`), text: short });
+    beats.push({ kind: "step", step: i, card: cardIdx >= 0 ? cardIdx : undefined, base: 2.8, say: end(`${lead} ${asYouClause(spokenStep(shorten(s)))}`), text: short });
   });
   beats.push({
     kind: "result",

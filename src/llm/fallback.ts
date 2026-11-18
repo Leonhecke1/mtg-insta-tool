@@ -302,7 +302,7 @@ function keyCardObjs(deck: Deck, arch: Archetype | undefined, n: number): Enrich
 }
 
 function keyCards(deck: Deck, arch: Archetype | undefined, n: number): string[] {
-  const engine = findEngine(deck, STAPLES, n).map((p) => p.card.name);
+  const engine = findEngine(deck, STAPLES, n, tribe(deck)?.name).map((p) => p.card.name);
   return [...engine, ...keyCardObjs(deck, arch, n).map((c) => c.name).filter((x) => !engine.includes(x))].slice(0, n);
 }
 
@@ -381,7 +381,7 @@ export function analyzeDeck(deck: Deck): DeckAnalysis {
   const fullName = commanderDisplayName(deck.commanders);
   const st = stats(deck);
   const short = deck.commanders.map((c) => shortName(c.name)).join(" & ") || fullName;
-  const engine = findEngine(deck, STAPLES, 3);
+  const engine = findEngine(deck, STAPLES, 3, tr?.name);
 
   const spells = nonLand(deck);
   const curve = new Array(8).fill(0);

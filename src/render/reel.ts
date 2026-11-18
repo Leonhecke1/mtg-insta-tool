@@ -166,7 +166,7 @@ export function reelScript(deck: Deck, hookOverride?: string, length: "short" | 
   // Hook nach /ig-reel: oeffnet eine Frage, die das Reel spaeter beantwortet.
   // Gesprochen und auf dem Bild getrennt (Bild: hoechstens ~6 Woerter).
   const options: { say: string; screen: string }[] = [];
-  if (third && third.priceEur != null) {
+  if (third && third.priceEur != null && third.priceEur > 0) {
     options.push({
       say: `Three cards make this deck work, and the third one costs ${euros(third.priceEur)}.`,
       screen: `3 cards. #3 costs ${eurosScreen(third.priceEur)}`,
@@ -182,7 +182,8 @@ export function reelScript(deck: Deck, hookOverride?: string, length: "short" | 
   let hookPick = pick(options, seed);
   if (hookOverride?.trim()) hookPick = { say: hookOverride.trim(), screen: hookOverride.trim() };
   const hook = hookPick.say;
-  const numberedHook = third !== null && hookPick === options[0] && !hookOverride?.trim();
+  // nur wenn wirklich der "3 cards"-Hook gewaehlt wurde (Preis der 3. Karte bekannt)
+  const numberedHook = third !== null && (third.priceEur ?? 0) > 0 && hookPick === options[0] && !hookOverride?.trim();
   // Alle Faehigkeiten vorlesen, solange es nicht zu lang wird (~260 Zeichen)
   const abilitiesSpoken: string[] = [];
   for (const ab of a.abilities) {
@@ -221,9 +222,15 @@ export function reelScript(deck: Deck, hookOverride?: string, length: "short" | 
     // Warum die Karte zur Engine gehoert (Bezug zum Commander), siehe src/llm/engine.ts
     const whyRaw = (c: (typeof a.keyCards)[number]) => a.engineWhy[c.name] ?? cardRole(c);
     // gleiche Begruendung wie die Karte davor nicht wortgleich wiederholen
+    const MV_WHY = /^costs (\d+) mana, so .* (?:deal|draw you|gain you|mill|get a bonus worth) (.+)$/;
     const why = (c: (typeof a.keyCards)[number]) => {
       const i = a.keyCards.indexOf(c);
-      return i > 0 && whyRaw(a.keyCards[i - 1]) === whyRaw(c) ? "does the same job, so you have a backup" : whyRaw(c);
+      const raw = whyRaw(c);
+      if (i > 0 && whyRaw(a.keyCards[i - 1]) === raw) return "does the same job, so you have a backup";
+      // zweiter grosser Zauber (Manawert-Commander): kurz statt den ganzen Satz zu wiederholen
+      const mv = raw.match(MV_WHY);
+      if (mv && a.keyCards.slice(0, i).some((x) => MV_WHY.test(whyRaw(x)))) return `is another big one at ${mv[1]} mana, so that's another ${mv[2]}`;
+      return raw;
     };
     const say = numberedHook
       ? a.keyCards

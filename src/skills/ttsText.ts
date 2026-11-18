@@ -47,7 +47,8 @@ function splitLong(sentence: string): string[] {
   if (!best) {
     if (sentence.length <= 220) return [sentence]; // Kommas reichen als Pause
     // Notfalls am mittleren Komma teilen
-    const commas = [...sentence.matchAll(/,\s+/g)].map((m) => m.index ?? 0).filter((i) => i > 30 && sentence.length - i > 30);
+    // nicht vor "..., searching ..." teilen: ein Satz, der mit -ing beginnt, klingt abgebrochen
+    const commas = [...sentence.matchAll(/,\s+(?!\w+ing\b)/g)].map((m) => m.index ?? 0).filter((i) => i > 30 && sentence.length - i > 30);
     if (!commas.length) return [sentence];
     const at = commas.reduce((a, b) => (Math.abs(b - mid) < Math.abs(a - mid) ? b : a));
     const rest = sentence.slice(at).replace(/^,\s+/, "");
