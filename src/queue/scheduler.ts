@@ -13,7 +13,7 @@ import { draftReply } from "../llm/replyDrafter";
 import { refreshTokenIfDue } from "../instagram/token";
 import { isSpamComment } from "./spam";
 import { notify } from "../push/push";
-import { ensureDailyDrafts } from "../sourcing/dailyDeck";
+import { ensureDailyDrafts, invalidateInstagramHistory } from "../sourcing/dailyDeck";
 import { nanoid } from "nanoid";
 import {
   addItem,
@@ -69,6 +69,7 @@ async function publishDue(): Promise<void> {
         publishedAt: new Date().toISOString(),
       });
       console.log(`[scheduler] published ${item.kind} ${item.id} -> ${publishedId}`);
+      if (item.kind !== "comment_reply") invalidateInstagramHistory();
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       updateItem(item.id, { status: "failed", error });

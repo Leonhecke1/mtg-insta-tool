@@ -3,7 +3,8 @@ import * as path from "path";
 import low, { LowdbSync } from "lowdb";
 import FileSync from "lowdb/adapters/FileSync";
 import { nanoid } from "nanoid";
-import { config } from "../config";
+import { config, instagramConfigured } from "../config";
+import { fetchOwnCaptions } from "../instagram/client";
 import { fetchArchidektDeck } from "../parser/archidekt";
 import { runPipeline } from "../pipeline";
 import { createJob, listJobs, updateJob } from "../jobs/jobStore";
@@ -103,6 +104,37 @@ function usedSets(): { deckIds: Set<number>; commanders: Set<string> } {
   return { deckIds, commanders };
 }
 
+/**
+ * Was schon auf Instagram ist - die verlaessliche Quelle, auch wenn der
+ * Server out/ und data/ der alten Posts nicht kennt (z. B. frisch geklont).
+ * Archidekt-Links und Commander-Namen werden aus den Captions gelesen.
+ * 1 Stunde gecacht.
+ */
+let igHistory: { at: number; deckIds: Set<number>; text: string } | null = null;
+
+async function instagramHistory(): Promise<{ deckIds: Set<number>; text: string }> {
+  if (!instagramConfigured()) return { deckIds: new Set(), text: "" };
+  if (igHistory && Date.now() - igHistory.at < 3600_000) return igHistory;
+  try {
+    const captions = await fetchOwnCaptions();
+    const deckIds = new Set<number>();
+    for (const c of captions) {
+      for (const m of c.matchAll(/archidekt\.com\/decks\/(\d+)/g)) deckIds.add(Number(m[1]));
+    }
+    igHistory = { at: Date.now(), deckIds, text: norm(captions.join(" ")) };
+    console.log(`[daily] instagram history: ${captions.length} posts, ${deckIds.size} archidekt links`);
+    return igHistory;
+  } catch (err) {
+    console.error("[daily] instagram history failed:", err instanceof Error ? err.message : err);
+    return igHistory ?? { deckIds: new Set(), text: "" };
+  }
+}
+
+/** Nach einem neuen Post den Cache verwerfen */
+export function invalidateInstagramHistory(): void {
+  igHistory = null;
+}
+
 function acceptableListing(d: ArchidektSearchDeck): string | null {
   if (d.private || d.unlisted) return "private";
   if (d.theorycrafted) return "theorycrafted";
@@ -133,6 +165,10 @@ function log(entry: SourcedDeck): void {
 /** Waehlt ein passendes Deck, rendert es und gibt den fertigen Job zurueck. */
 export async function produceDeckTech(): Promise<{ job: Job; own: boolean } | null> {
   const used = usedSets();
+  const ig = await instagramHistory();
+  ig.deckIds.forEach((id) => used.deckIds.add(id));
+  // Commander gilt als gepostet, wenn sein voller Name in einer Caption steht
+  const postedOnIg = (name: string) => ig.text.length > 0 && norm(name).length >= 6 && ig.text.includes(norm(name));
   let tries = 0;
 
   for (const { deck, own } of await candidates()) {
@@ -148,7 +184,7 @@ export async function produceDeckTech(): Promise<{ job: Job; own: boolean } | nu
     // Commander vorab pruefen, bevor teuer gerendert wird
     const raw = await fetchArchidektDeck(url);
     const commander = raw.commanders.map((c) => c.name).join(" & ");
-    if (!commander || raw.commanders.some((c) => used.commanders.has(norm(c.name)))) {
+    if (!commander || raw.commanders.some((c) => used.commanders.has(norm(c.name)) || postedOnIg(c.name))) {
       log({ deckId: deck.id, owner: deck.owner.username, commander, at: new Date().toISOString(), outcome: "skipped", reason: "commander already covered" });
       continue;
     }
