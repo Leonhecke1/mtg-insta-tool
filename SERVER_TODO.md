@@ -181,11 +181,13 @@ Erklär-Reels zu Combos im Stil „Janky Combos“: Karten einzeln, dann der Loo
   TTS_ENGINE=voicestudio
   VOICESTUDIO_URL=http://127.0.0.1:3900
   VOICESTUDIO_MODEL=omnivoice
-  VOICESTUDIO_VOICE=default
+  VOICESTUDIO_VOICE=feat_17_the_commentator
   VOICESTUDIO_INSTRUCTIONS=friendly, relaxed, conversational
   ```
   Optional: `VOICESTUDIO_SPEED` (1.0), `VOICESTUDIO_TIMEOUT_SEC` (300 pro Szene), `VOICESTUDIO_API_KEY` (nur wenn VoiceStudio auf einem anderen Rechner läuft; Leon trägt ihn selbst ein)
-- [ ] Neustart, ein Combo-Reel erzeugen, Log auf `[tts] VoiceStudio fehlgeschlagen` prüfen, Entwurf danach ablehnen
+- [ ] **Eine Stimme für alles:** Leon will durchgehend `feat_17_the_commentator` (VoiceStudio-Archetyp). Beim ersten Reel legt das Tool daraus einmal das Klon-Profil `floating-mana-feat_17_the_commentator` an (Log: `[tts] VoiceStudio: Stimme ... festgehalten`) und nutzt es danach für jede Szene. Mit `VOICESTUDIO_VOICE=default` erfindet das Modell pro Szene eine neue Stimme – nie so lassen
+- [ ] Prüfen: `curl -s http://127.0.0.1:3900/archetypes/feat_17_the_commentator` liefert den Archetyp (sonst Leon melden)
+- [ ] Neustart, ein Combo-Reel erzeugen, Log auf `[tts] VoiceStudio fehlgeschlagen` prüfen, anhören: alle Szenen dieselbe Stimme? Entwurf danach ablehnen
 - [ ] Lizenz: VoiceStudio selbst ist AGPL-3.0 und läuft unverändert als eigener Dienst (wir binden keinen Code ein). **Achtung:** Das Standardmodell **OmniVoice** führt VoiceStudio in `docs/licensing/model-inventory.md` als **nicht kommerziell**. Für einen Hobby-Account ok, sobald floating.mana Geld verdient (Sponsoring, Affiliate) nicht mehr. Leon entscheidet; ein anderes Modell wird über `VOICESTUDIO_MODEL` gewählt (Lizenz vorher in derselben Datei prüfen)
 
 ## 9. Nach dem Test an Leon zurückmelden
