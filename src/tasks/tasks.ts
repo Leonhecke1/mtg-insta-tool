@@ -20,6 +20,8 @@ export interface Task {
   startedAt: string;
   finishedAt?: string;
   result?: unknown;
+  /** Kurze Ergebniszeile fuer die App ("3 neue Meldungen, 1 Entwurf") */
+  summary?: string;
   error?: string;
 }
 
@@ -36,7 +38,7 @@ function prune(): void {
 export function startTask<T>(
   label: string,
   fn: (report: Report) => Promise<T>,
-  opts: { notifyOnDone?: (result: T) => string } = {}
+  opts: { notifyOnDone?: (result: T) => string; summary?: (result: T) => string } = {}
 ): Task {
   prune();
   const task: Task = {
@@ -60,6 +62,7 @@ export function startTask<T>(
       task.step = "Fertig";
       task.progress = 1;
       task.result = result;
+      if (opts.summary) task.summary = opts.summary(result);
       task.finishedAt = new Date().toISOString();
       if (opts.notifyOnDone) {
         notify({ title: `${label}: fertig`, body: opts.notifyOnDone(result), tag: `task-${task.id}` }).catch(() => undefined);

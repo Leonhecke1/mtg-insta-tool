@@ -195,8 +195,8 @@ async function newsTick(): Promise<void> {
   newsRunning = true;
   lastNewsPoll = Date.now();
   try {
-    const n = await pollNews();
-    if (n) console.log(`[news] ${n} new item(s)`);
+    const r = await pollNews();
+    console.log(`[news] ${r.fresh} new, ${r.drafted} drafted, ${r.pendingCards} pending cards${r.baseline ? `, baseline ${r.baseline} sets` : ""}${r.errors.length ? `, errors: ${r.errors.join("; ")}` : ""}`);
   } catch (err) {
     console.error("[news]", err instanceof Error ? err.message : err);
   } finally {

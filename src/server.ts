@@ -427,10 +427,23 @@ app.get("/api/news", (_req, res) => {
   res.json({ items: items.slice(0, 150), lastPoll });
 });
 app.post("/api/news/refresh", (_req, res) => {
-  const task = startTask("News abrufen", async (report) => {
-    report("Frage Scryfall und Feeds ab", null as unknown as number);
-    return { fresh: await pollNews() };
-  });
+  const task = startTask(
+    "News abrufen",
+    async (report) => {
+      report("Frage Scryfall und Feeds ab", 0.3);
+      return pollNews();
+    },
+    {
+      summary: (r) =>
+        r.baseline
+          ? `Erster Abruf: ${r.baseline} Set(s) im News-Feed, ab jetzt werden neue Spoiler zu Entwürfen`
+          : r.fresh
+          ? `${r.fresh} neue Meldung(en), ${r.drafted} Entwurf/Entwürfe`
+          : r.pendingCards
+          ? `${r.pendingCards} neue Karte(n) gesammelt, Carousel ab ${getSettings().spoilerMin} Karten oder nach 24 h`
+          : `Nichts Neues seit dem letzten Abruf${r.errors.length ? ` (Fehler: ${r.errors[0]})` : ""}`,
+    }
+  );
   res.status(202).json({ taskId: task.id });
 });
 /** Aus einer Meldung einen Entwurf machen (Feed-Bild oder Story) */
@@ -477,6 +490,7 @@ app.post("/api/news/:id/draft", (req, res) => {
   const format: NewsFormat = ["auto", "post", "story"].includes(req.body?.format) ? req.body.format : "auto";
   const task = startTask(`News: ${item.cardName ?? item.title}`, (report) => draftNewsItem(item, format, report), {
     notifyOnDone: (r) => `${r.label} wartet auf Freigabe.`,
+    summary: (r) => `Entwurf in der Freigabe: ${r.label}`,
   });
   res.status(202).json({ taskId: task.id });
 });
@@ -494,7 +508,7 @@ app.post("/api/news/custom", (req, res) => {
     report("Suche Karten auf Scryfall", 0.1);
     const item = await customNews(input, title);
     return draftNewsItem(item, format, report);
-  }, { notifyOnDone: (r) => `${r.label} wartet auf Freigabe.` });
+  }, { notifyOnDone: (r) => `${r.label} wartet auf Freigabe.`, summary: (r) => `Entwurf in der Freigabe: ${r.label}` });
   res.status(202).json({ taskId: task.id });
 });
 
@@ -523,12 +537,19 @@ app.post("/api/plan/apply", async (_req, res) => {
   res.json(saved);
 });
 /** Carousel-Entwuerfe an Reel-Tagen in Reels umwandeln (Hintergrund-Auftrag) */
+let converting = false;
 app.post("/api/plan/convert-drafts", (_req, res) => {
+  // Doppeltes Antippen darf nicht zwei Reels pro Entwurf erzeugen
+  if (converting) return res.status(409).json({ error: "Umwandlung läuft bereits" });
   const drafts = carouselDraftsOnReelDays();
   if (!drafts.length) return res.json({ converted: 0 });
+  converting = true;
   const task = startTask(`${drafts.length} Carousel(s) → Reel`, async (report) => {
     let done = 0;
+    try {
     for (const [i, item] of drafts.entries()) {
+      // inzwischen abgelehnt/umgewandelt? dann ueberspringen
+      if (getItem(item.id)?.status !== "draft") continue;
       const r = getJob(item.sourceJobId!)?.result;
       if (!r) continue;
       const video = await buildReel(r.deck, r.jobDir, {
@@ -549,6 +570,9 @@ app.post("/api/plan/convert-drafts", (_req, res) => {
       });
       updateItem(item.id, { status: "rejected" });
       done++;
+    }
+    } finally {
+      converting = false;
     }
     return { converted: done };
   }, { notifyOnDone: (r) => `${r.converted} Reel(s) warten auf Freigabe.` });

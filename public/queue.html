@@ -199,7 +199,8 @@ function preview(it) {
   const vid = it.previewUrls.find((u) => u.endsWith(".mp4"));
   if (vid) {
     const poster = it.previewUrls.find((u) => !u.endsWith(".mp4"));
-    return `<div class="thumbs"><video src="${vid}" ${poster ? `poster="${poster}"` : ""} controls playsinline preload="none"></video></div>`;
+    // stumm automatisch abspielen, damit sofort sichtbar ist, dass es ein Video ist
+    return `<div class="thumbs"><video src="${vid}" ${poster ? `poster="${poster}"` : ""} controls playsinline muted autoplay loop preload="metadata"></video></div>`;
   }
   const items = it.previewUrls.map((u) =>
     u.endsWith(".mp4")
