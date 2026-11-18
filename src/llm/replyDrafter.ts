@@ -29,7 +29,7 @@ Rules:
 
   const msg = await client.messages.create({
     model: config.anthropicModel,
-    max_tokens: 200,
+    max_tokens: 4000, // inkl. Thinking (Haiku 5.5 denkt standardmaessig)
     messages: [{ role: "user", content: prompt }],
   });
   const text = msg.content

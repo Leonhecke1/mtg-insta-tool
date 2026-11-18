@@ -14,7 +14,7 @@ export const config = {
   basicAuthPass: optional("BASIC_AUTH_PASS"),
 
   anthropicApiKey: optional("ANTHROPIC_API_KEY"),
-  anthropicModel: optional("ANTHROPIC_MODEL", "claude-sonnet-5"),
+  anthropicModel: optional("ANTHROPIC_MODEL", "claude-haiku-5-5"),
 
   dataDir: path.resolve(optional("DATA_DIR", "./data")),
   outDir: path.resolve(optional("OUT_DIR", "./out")),
