@@ -577,7 +577,7 @@ export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = 
   // 1. Voice-over je Szene (optional)
   const voices: ({ file: string; seconds: number } | null)[] = [];
   for (let i = 0; i < script.beats.length; i++) {
-    if (ttsEngine() !== "none") report(`Reel: Sprachaufnahme ${i + 1}/${script.beats.length}`, (i / script.beats.length) * 0.08);
+    if (ttsEnabled()) report(`Reel: Sprachaufnahme ${i + 1}/${script.beats.length}`, (i / script.beats.length) * 0.08);
     voices.push(await synthesizeVoice(speakable(script.beats[i].say), jobDir, `reel-voice-${i}.wav`));
   }
   const withVoice = voices.some(Boolean);
@@ -663,30 +663,9 @@ export function reelCoverPath(videoFile: string): string {
  * Text-to-Speech mit Piper (https://github.com/rhasspy/piper), laeuft lokal
  * und kostenlos. Ohne PIPER_BIN/PIPER_MODEL gibt es kein Voice-over.
  */
-/** Welche Sprachausgabe aktiv ist */
-export function ttsEngine(): "kokoro" | "piper" | "none" {
-  const e = config.ttsEngine.toLowerCase();
-  if (e === "kokoro" || e === "none") return e;
-  if (e === "piper" || (!e && config.piperBin && config.piperModel)) return config.piperBin ? "piper" : "none";
-  return "none";
-}
-
-// Kokoro-Modell nur einmal laden (dauert beim ersten Mal, danach im Speicher)
-let kokoroModel: Promise<any> | null = null;
-function loadKokoro(): Promise<any> {
-  if (!kokoroModel) {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { KokoroTTS, env } = require("kokoro-js");
-    // Modell in DATA_DIR ablegen, damit "npm ci" es nicht loescht
-    env.cacheDir = path.join(config.dataDir, "models");
-    const loading: Promise<any> = KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
-      dtype: config.kokoroDtype,
-      device: "cpu",
-    });
-    loading.catch(() => (kokoroModel = null)); // naechster Versuch darf neu laden
-    kokoroModel = loading;
-  }
-  return kokoroModel;
+/** Ob eine Sprachausgabe (Piper) konfiguriert ist */
+export function ttsEnabled(): boolean {
+  return Boolean(config.piperBin && config.piperModel);
 }
 
 async function synthesizeVoice(
@@ -694,14 +673,9 @@ async function synthesizeVoice(
   jobDir: string,
   fileName: string
 ): Promise<{ file: string; seconds: number } | null> {
-  const engine = ttsEngine();
-  if (engine === "none" || !ffmpegPath || !text) return null;
+  if (!ttsEnabled() || !ffmpegPath || !text) return null;
   const file = path.join(jobDir, fileName);
-  if (engine === "kokoro") {
-    const tts = await loadKokoro();
-    const audio = await tts.generate(text, { voice: config.ttsVoice, speed: config.ttsSpeed });
-    await audio.save(file);
-  } else {
+  {
     await new Promise<void>((resolve, reject) => {
       const p = spawn(config.piperBin, ["--model", config.piperModel, "--output_file", file]);
       let stderr = "";
