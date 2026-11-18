@@ -22,6 +22,7 @@ import { getTask, listTasks, startTask } from "./tasks/tasks";
 import { creditFromText, igCaption } from "./skills/igCaption";
 import { lintCaption } from "./skills/caption";
 import { humanize } from "./skills/human";
+import { analyzeProfile, saveAnswers } from "./skills/profile";
 import { applyPronunciation, DEFAULT_RULES, getRules, saveRules } from "./settings/pronunciation";
 import * as fs from "fs";
 import { authEnabled, handleLogin, handleLogout, requireAuth } from "./auth";
@@ -397,6 +398,19 @@ app.post("/api/settings/pronunciation/preview", (req, res) => {
   const text = String(req.body?.text ?? "").slice(0, 500);
   const rules = Array.isArray(req.body?.rules) ? req.body.rules : undefined;
   res.json({ spoken: applyPronunciation(text, rules) });
+});
+
+// --- Profil-Analyse (/ig-profile) ---
+app.get("/api/profile/analysis", async (_req, res) => {
+  if (!instagramConfigured()) return res.status(400).json({ error: "Instagram ist nicht verbunden" });
+  try {
+    res.json(await analyzeProfile());
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+app.put("/api/profile/answers", (req, res) => {
+  res.json(saveAnswers(req.body ?? {}));
 });
 
 app.get("/api/plan/info", (_req, res) => {

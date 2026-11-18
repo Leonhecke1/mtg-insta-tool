@@ -306,3 +306,10 @@ der App brechen nichts ab. Fertige und fehlgeschlagene Aufträge melden sich zus
   Gedankenstriche und KI-Floskeln und meldet typische KI-Satzmuster. Kartennamen und MTG-Begriffe
   (z. B. „synergy“, „unleash“) bleiben geschützt. Automatisch auf jede neue Caption angewendet,
   manuell über „Text säubern“.
+- **/ig-profile** (`src/skills/profile.ts`, Daten `rubric.json`): Tab „Profil“ bewertet das Profil
+  mit 100 Punkten. Name-Feld, Bio, Link, Handle, Aktivität und Stories werden automatisch über die
+  API bewertet. Angepinnte Posts, Highlights, Grid, Profilbild und Kategorie schätzt du einmal selbst
+  ein, weil die API diese Felder nicht liefert. Dazu gibt es Vorschläge zum Kopieren und
+  Kandidaten zum Anpinnen.
+
+Reels halten Instagrams sichere Zone ein (oben ~210 px, unten ~480 px, rechts die Buttons frei).

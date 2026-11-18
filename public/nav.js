@@ -4,6 +4,7 @@
     { href: "/queue.html", label: "Freigabe", icon: '<path d="M5 12l4 4L19 6"/>' },
     { href: "/plan.html", label: "Plan", icon: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>' },
     { href: "/", label: "Erstellen", icon: '<path d="M12 5v14M5 12h14"/>' },
+    { href: "/profile.html", label: "Profil", icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>' },
     { href: "/settings.html", label: "Einstellungen", icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>' },
   ];
 
@@ -17,6 +18,7 @@
       min-height: 56px; color: #9A8F7A; text-decoration: none; font-size: 11px; font-weight: 500; position: relative; }
     .tabbar a.active { color: #1F1D18; }
     .tabbar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .tabbar .badge[hidden] { display: none; }
     .tabbar .badge { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px;
       border-radius: 9px; background: #A23B2A; color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
     body { padding-bottom: calc(64px + env(safe-area-inset-bottom)) !important; }

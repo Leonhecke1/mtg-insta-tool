@@ -170,6 +170,60 @@ export async function hideComment(commentId: string): Promise<void> {
   await call("POST", `/${commentId}`, { hide: "true" });
 }
 
+export interface IgProfile {
+  username: string;
+  name?: string;
+  biography?: string;
+  website?: string;
+  followers_count?: number;
+  follows_count?: number;
+  media_count?: number;
+  profile_picture_url?: string;
+}
+
+export interface IgMediaStat {
+  id: string;
+  caption?: string;
+  media_type: string;
+  media_product_type?: string;
+  timestamp: string;
+  permalink?: string;
+  thumbnail_url?: string;
+  media_url?: string;
+  like_count?: number;
+  comments_count?: number;
+}
+
+/** Profilfelder fuer die Profil-Analyse (/ig-profile) */
+export async function fetchProfile(): Promise<IgProfile> {
+  return call<IgProfile>("GET", `/${config.igUserId}`, {
+    fields: "username,name,biography,website,followers_count,follows_count,media_count,profile_picture_url",
+  });
+}
+
+/** Letzte Posts mit Likes/Kommentaren */
+export async function fetchRecentMediaStats(limit = 24): Promise<IgMediaStat[]> {
+  const r = await call<{ data: IgMediaStat[] }>("GET", `/${config.igUserId}/media`, {
+    fields: "id,caption,media_type,media_product_type,timestamp,permalink,thumbnail_url,media_url,like_count,comments_count",
+    limit: String(limit),
+  });
+  return r.data;
+}
+
+/** Anzahl gerade aktiver Stories */
+export async function fetchActiveStoryCount(): Promise<number> {
+  const r = await call<{ data: unknown[] }>("GET", `/${config.igUserId}/stories`, { fields: "id" });
+  return r.data.length;
+}
+
+/** Kommentare eines Posts mit Info, ob der Account selbst geantwortet hat */
+export async function commentReplyRate(mediaId: string, username: string): Promise<{ total: number; answered: number }> {
+  const r = await call<{ data: any[] }>("GET", `/${mediaId}/comments`, { fields: "username,replies{username}", limit: "50" });
+  const others = r.data.filter((c) => c.username !== username);
+  const answered = others.filter((c) => (c.replies?.data ?? []).some((x: any) => x.username === username)).length;
+  return { total: others.length, answered };
+}
+
 /** Kommentar unter einem eigenen Post (z. B. Decklisten-Link als erster Kommentar). */
 export async function commentOnMedia(mediaId: string, message: string): Promise<string> {
   const { id } = await call<{ id: string }>("POST", `/${mediaId}/comments`, { message });

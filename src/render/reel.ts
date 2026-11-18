@@ -435,7 +435,11 @@ function pageHtml(deck: Deck, s: ReelScript, beats: TimedBeat[], total: number, 
   .plabel { font-size: 28px; font-weight: 800; letter-spacing: 4px; color: ${accent}; }
   .pname { font-size: 52px; font-weight: 900; line-height: 1.05; margin: 8px 0; max-width: 560px; }
   .pval { font-size: 46px; font-weight: 700; color: rgba(255,255,255,.85); }
-  #progress { position: absolute; top: 70px; left: 70px; right: 70px; display: flex; gap: 10px; }
+  /* Sichere Zone: Instagram legt oben ~210 px (Kopfzeile), unten ~480 px (Name, Caption,
+     Audio) und rechts die Buttons ueber das Video. Alle Inhalte liegen deshalb auf einer
+     Buehne, die auf 85 % verkleinert und nach unten versetzt ist: y 100..1540 -> ~207..1431. */
+  #stage { position: absolute; left: 0; top: 0; width: ${W}px; height: ${H}px; transform-origin: 50% 0; transform: translateY(122px) scale(0.85); }
+  #progress { position: absolute; top: 125px; left: 70px; right: 70px; display: flex; gap: 10px; }
   #progress div { flex: 1; height: 8px; border-radius: 4px; background: rgba(255,255,255,.25); overflow: hidden; }
   #progress i { display: block; height: 100%; width: 0; background: #fff; }
   /* Eigener Streifen unter allen Szenen-Inhalten; Stuecke von max. 2 Zeilen */
@@ -443,13 +447,13 @@ function pageHtml(deck: Deck, s: ReelScript, beats: TimedBeat[], total: number, 
          align-items: flex-start; justify-content: center; text-align: center; }
   #sub span { font-size: 46px; line-height: 1.3; font-weight: 800; background: rgba(0,0,0,.62); padding: 6px 20px; border-radius: 14px;
          box-decoration-break: clone; -webkit-box-decoration-break: clone; }
-  #handle { position: absolute; bottom: 120px; width: 100%; text-align: center; font-size: 32px; font-weight: 700; color: rgba(255,255,255,.6); }
 </style></head><body>
   <div id="bg"></div><div id="glow"></div><div id="shade"></div>
+  <div id="stage">
   <div id="progress">${beats.map(() => "<div><i></i></div>").join("")}</div>
   ${beats.map((b) => beatHtml(b, deck, s)).join("\n")}
   <div id="sub"></div>
-  <div id="handle">@floating.mana</div>
+  </div>
 <script>
   const TOTAL = ${total};
   const BEATS = ${JSON.stringify(beats.map((b) => ({ start: b.start, dur: b.dur, say: b.say, voice: b.voiceSec })))};
