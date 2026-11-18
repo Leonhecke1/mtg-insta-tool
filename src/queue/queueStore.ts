@@ -44,6 +44,8 @@ export interface QueueItem {
   firstComment?: string;
   /** "news" = zusaetzlicher Beitrag, blockiert keinen Tag im Wochenplan */
   origin?: "news";
+  /** Commander-Spellbook-ID bei Combo-Reels */
+  comboId?: string;
   /** Suchbegriffe fuer den Caption-Linter */
   keywords?: string[];
   /** Wann zuletzt per Push an die fehlende Freigabe erinnert wurde */

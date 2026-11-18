@@ -42,8 +42,14 @@ function trimClause(s: string, max: number): string {
   const t = s.trim().replace(/\.$/, "");
   if (t.length <= max) return t;
   const cut = t.slice(0, max);
-  const at = Math.max(cut.lastIndexOf(", "), cut.lastIndexOf("; "), cut.lastIndexOf(": "));
-  return (at > max * 0.45 ? cut.slice(0, at) : cut.replace(/\s+\S*$/, "")).trim();
+  // am liebsten an einem Satzende kuerzen
+  const dot = cut.lastIndexOf(". ");
+  if (dot > max * 0.4) return cut.slice(0, dot).trim();
+  const at =Math.max(cut.lastIndexOf(", "), cut.lastIndexOf("; "), cut.lastIndexOf(": "));
+  let out = (at > max * 0.45 ? cut.slice(0, at) : cut.replace(/\s+\S*$/, "")).trim();
+  // nicht mit "... with a" enden
+  while (/\s(a|an|the|with|for|of|to|and|or|from|into|onto|your|that)$/i.test(out)) out = out.replace(/\s+\S+$/, "");
+  return out;
 }
 interface TimedBeat extends Beat {
   start: number;
@@ -75,7 +81,7 @@ export function comboScript(c: Combo): { beats: Beat[]; hookScreen: string } {
   ];
   // Jede Karte: nur der entscheidende Satz, kurz
   c.cards.forEach((card, i) => {
-    const key = trimClause(card.keyText ?? "", 95);
+    const key = trimClause(card.keyText ?? "", 72);
     beats.push({
       kind: "piece",
       card: i,
@@ -84,24 +90,30 @@ export function comboScript(c: Combo): { beats: Beat[]; hookScreen: string } {
       text: key,
     });
   });
-  // Der Loop: ein Schritt pro Szene (max. 4), "Repeat" wird zum Unendlich-Moment
-  const steps = c.steps.slice(0, 5).filter((s) => !/^repeat\.?$/i.test(s.trim())).slice(0, 4);
+  // Der Loop: ein Schritt pro Szene (max. 3), "Repeat" wird zum Unendlich-Moment
+  const steps = c.steps.slice(0, 5).filter((s) => !/^repeat\.?$/i.test(s.trim())).slice(0, 3);
   steps.forEach((s, i) => {
-    const short = trimClause(shorten(s), 90);
-    const cardIdx = c.cards.findIndex((k) => s.includes(k.name) || s.includes(k.shortName));
+    const short = trimClause(shorten(s), 75);
+    // die Karte, die im Schritt zuerst genannt wird ("Activate Isochron Scepter ... copy of Dramatic Reversal")
+    let cardIdx = -1;
+    let first = Infinity;
+    c.cards.forEach((k, ki) => {
+      const at = s.indexOf(k.shortName);
+      if (at >= 0 && at < first) [first, cardIdx] = [at, ki];
+    });
     beats.push({ kind: "step", step: i, card: cardIdx >= 0 ? cardIdx : undefined, base: 2.8, say: `${short}.`, text: short });
   });
   beats.push({
     kind: "result",
     base: 3,
     say: `${c.steps.some((s) => /^repeat/i.test(s.trim())) ? "Repeat, and " : "And "}${lower.length > 90 ? trimClause(lower, 90) : lower}.${
-      c.prerequisites[0] ? ` You just need ${trimClause(c.prerequisites[0].charAt(0).toLowerCase() + c.prerequisites[0].slice(1), 70)}.` : ""
+      c.prerequisites[0] && c.prerequisites[0].length <= 60 ? ` You just need ${trimClause(c.prerequisites[0].charAt(0).toLowerCase() + c.prerequisites[0].slice(1), 70)}.` : ""
     }`,
   });
   if (c.priceEur != null) {
-    beats.push({ kind: "price", base: 2.2, say: `The whole combo: about ${c.priceEur < 1 ? `${Math.round(c.priceEur * 100)} cents` : `${Math.round(c.priceEur)} euros`}.` });
+    beats.push({ kind: "price", base: 2.2, say: `All of it: about ${c.priceEur < 1 ? `${Math.round(c.priceEur * 100)} cents` : `${Math.round(c.priceEur)} euros`}.` });
   }
-  beats.push({ kind: "cta", base: 2.6, say: "Would you run this? Tell me in the comments." });
+  beats.push({ kind: "cta", base: 2.6, say: "Would you run it? Comment below." });
 
   // Bild-Hook: max. ~6 Woerter
   const words = res.split(/\s+/);
@@ -292,7 +304,7 @@ export async function buildComboReel(
   let t = 0;
   const beats: TimedBeat[] = script.map((b, i) => {
     const v = voices[i];
-    const read = b.say.length / 15 + 0.6;
+    const read = b.say.length / 17 + 0.5;
     const dur = Math.max(b.base, v ? v.seconds + 0.4 : read);
     const tb = { ...b, start: t, dur, voiceSec: v ? v.seconds : read - 0.4 };
     t += dur;

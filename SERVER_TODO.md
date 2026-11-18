@@ -125,7 +125,14 @@ Prüfen nach dem Update:
 - [ ] Zweimal hintereinander neu starten: **kein** `[news]`-Abruf im Log
 - [ ] „Eigenen Post einplanen“ für einen Tag mit Entwurf: Rückfrage erscheint
 
-## 8. Nach dem Test an Leon zurückmelden
+## 8. Neu: Combo-Reels (Commander Spellbook)
+
+Erklär-Reels zu Combos im Stil „Janky Combos“: Karten einzeln, dann der Loop Schritt für Schritt, Ergebnis, Preis, Frage. Daten von der kostenlosen Commander-Spellbook-API, Kartenbilder per **einer** Scryfall-Sammelanfrage pro Combo. Ca. 30–35 s.
+- Wochenplan: Tagestyp „Combo-Reel“ (Optionen → Wochenplan). Die Automatik holt dann eine beliebte, noch nicht verwendete Combo im Budget (`data/combos-posted.json`)
+- Freigabe → „Eigenen Post einplanen“ → Typ „Combo-Reel (Spellbook)“, Link einfügen (leer = automatisch)
+- [ ] Test: ein Combo-Reel mit `https://commanderspellbook.com/combo/4821-5261/` anlegen, Video prüfen, Entwurf danach ablehnen
+
+## 9. Nach dem Test an Leon zurückmelden
 
 - Was läuft, was nicht (mit Logzeilen, ohne Secrets)
 - Ob Reels sich bewegen und ob Ton da ist

@@ -19,6 +19,8 @@ import {
 } from "./queue/queueStore";
 import { mediaUrls, runDailyNow, runSchedulerNow, startScheduler } from "./queue/scheduler";
 import { fetchNextDeck, isDayTaken, planInfo } from "./sourcing/dailyDeck";
+import { draftCombo } from "./combos/comboDraft";
+import { comboIdFrom } from "./combos/spellbook";
 import { getTask, listTasks, startTask } from "./tasks/tasks";
 import { creditFromText, igCaption } from "./skills/igCaption";
 import { lintCaption } from "./skills/caption";
@@ -593,6 +595,29 @@ app.post("/api/plan/convert-drafts", (_req, res) => {
     }
     return { converted: done };
   }, { notifyOnDone: (r) => `${r.converted} Reel(s) warten auf Freigabe.` });
+  res.status(202).json({ taskId: task.id });
+});
+
+/**
+ * Combo-Reel als Entwurf (Commander Spellbook).
+ * Body: { url?: Spellbook-Link oder ID (leer = automatisch neue Combo), scheduledAt, force? }
+ */
+app.post("/api/queue/combo", (req, res) => {
+  const body = req.body ?? {};
+  const url = typeof body.url === "string" ? body.url.trim() : "";
+  if (url && !comboIdFrom(url)) return res.status(400).json({ error: "Kein gültiger Commander-Spellbook-Link (z. B. commanderspellbook.com/combo/880-6529-6664/)" });
+  const when = new Date(body.scheduledAt ?? Date.now());
+  if (isNaN(when.getTime())) return res.status(400).json({ error: "invalid scheduledAt" });
+  if (!body.force && isDayTaken(when)) {
+    return res.status(409).json({
+      error: `Am ${when.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "numeric" })} ist schon ein Deck-Post geplant.`,
+      conflict: true,
+    });
+  }
+  const task = startTask(url ? "Combo-Reel" : "Combo-Reel (automatisch)", (report) => draftCombo(when, url || undefined, report), {
+    notifyOnDone: (r) => `${r.label} für ${new Date(r.scheduledAt).toLocaleDateString("de-DE")} wartet auf Freigabe.`,
+    summary: (r) => r.label,
+  });
   res.status(202).json({ taskId: task.id });
 });
 

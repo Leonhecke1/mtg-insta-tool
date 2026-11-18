@@ -64,7 +64,8 @@ function keySentence(oracle: string, steps: string[], cardName = ""): string | u
   const mine = steps.filter((s) => short && s.toLowerCase().includes(short));
   const stepWords = words((mine.length ? mine : steps).join(" ").toLowerCase().split(short).join(" "));
   const sentences = stripReminder(oracle)
-    .split(/\n|(?<=\.)\s+/)
+    // ganze Faehigkeiten (Zeilen), sonst entstehen Bruchstuecke wie "If you do, ..."
+    .split(/\n/)
     .map((x) => x.trim())
     .filter((x) => x.length > 12);
   let best: { s: string; score: number } | undefined;

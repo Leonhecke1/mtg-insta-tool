@@ -51,6 +51,7 @@
     width: 100%; padding: 10px 12px; border: 1px solid #D5CBB5; border-radius: 10px; background: #fff; color: var(--ink);
   }
   textarea { min-height: 120px; resize: vertical; line-height: 1.4; }
+  [hidden] { display: none !important; }
 
   .day { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 20px 4px 8px; }
 
@@ -124,10 +125,12 @@
         <option value="carousel">Carousel</option>
         <option value="story">Story (1. Slide)</option>
         <option value="image">Einzelbild</option>
-        <option value="reel">Reel (Karte + Slides)</option>
+        <option value="reel">Reel (Deck)</option>
+        <option value="combo">Combo-Reel (Spellbook)</option>
       </select>
       <input type="datetime-local" id="whenInp" aria-label="Zeitpunkt" />
       <input type="text" id="hookInp" placeholder="Hook fürs Reel (leer = Tagline)" />
+      <input type="url" id="comboInp" placeholder="Commander-Spellbook-Link (leer = automatisch neue Combo)" hidden />
       <button id="addBtn">Als Entwurf anlegen</button>
     </div>
     <div class="err" id="addErr"></div>
@@ -369,18 +372,31 @@ window.addEventListener("tasks-done", () => load(true));
   document.getElementById("whenInp").value = toLocal(d.toISOString());
 })();
 
+// Combo-Reel braucht kein Deck, sondern einen Spellbook-Link
+document.getElementById("kindSel").addEventListener("change", (e) => {
+  const combo = e.target.value === "combo";
+  document.getElementById("jobSel").hidden = combo;
+  document.getElementById("hookInp").hidden = combo || e.target.value !== "reel";
+  document.getElementById("comboInp").hidden = !combo;
+});
+
 document.getElementById("addBtn").onclick = async () => {
   const btn = document.getElementById("addBtn");
   btn.disabled = true;
   try {
-    const payload = {
+    const isCombo = document.getElementById("kindSel").value === "combo";
+    const url = isCombo ? "/api/queue/combo" : "/api/queue";
+    const payload = isCombo ? {
+      url: document.getElementById("comboInp").value.trim() || undefined,
+      scheduledAt: new Date(document.getElementById("whenInp").value).toISOString(),
+    } : {
       jobId: document.getElementById("jobSel").value,
       kind: document.getElementById("kindSel").value,
       scheduledAt: new Date(document.getElementById("whenInp").value).toISOString(),
       hook: document.getElementById("hookInp").value || undefined,
     };
     try {
-      await api("POST", "/api/queue", payload);
+      await api("POST", url, payload);
     } catch (err) {
       if (err.status !== 409 || !err.data || !err.data.conflict) throw err;
       // Doppelter Deck-Post: nachfragen und nur auf Wunsch trotzdem anlegen
@@ -390,7 +406,7 @@ Trotzdem anlegen?")) {
         document.getElementById("addErr").textContent = "Nicht angelegt. Anderen Tag wählen?";
         return;
       }
-      await api("POST", "/api/queue", { ...payload, force: true });
+      await api("POST", url, { ...payload, force: true });
     }
     document.getElementById("addErr").textContent = "Läuft im Hintergrund, Fortschritt unten.";
     if (window.trackTasks) window.trackTasks();

@@ -220,6 +220,7 @@ function renderAuto(s) {
     return `<div class="wrow ${slot.kind}" data-day="${d}"><b>${n}</b>
       <select><option value="reel" ${slot.kind === "reel" ? "selected" : ""}>Reel</option>
         <option value="carousel" ${slot.kind === "carousel" ? "selected" : ""}>Carousel</option>
+        <option value="combo" ${slot.kind === "combo" ? "selected" : ""}>Combo-Reel</option>
         <option value="none" ${slot.kind === "none" ? "selected" : ""}>nichts</option></select>
       <input type="time" value="${slot.time}"></div>`;
   }).join("");

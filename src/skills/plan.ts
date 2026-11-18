@@ -28,7 +28,8 @@ export async function checkPlan(): Promise<PlanCheck> {
   const s = getSettings();
   const checks: PlanCheck["checks"] = [];
   const posts = s.schedule.filter((d) => d.kind !== "none").length;
-  const reels = s.schedule.filter((d) => d.kind === "reel").length;
+  const reels = s.schedule.filter((d) => d.kind === "reel" || d.kind === "combo").length;
+  const combos = s.schedule.filter((d) => d.kind === "combo").length;
   const carousels = s.schedule.filter((d) => d.kind === "carousel").length;
 
   // Eigene Zahlen (Likes + 3x Kommentare als Naeherung; Aufrufe braucht die Insights-Berechtigung)
@@ -71,6 +72,11 @@ export async function checkPlan(): Promise<PlanCheck> {
       : { status: "INFO", title: "Kein Carousel", detail: "Ein Carousel pro Woche hält bestehende Follower bei der Stange." }
   );
   checks.push(
+    combos >= 1
+      ? { status: "PASS", title: `${combos} Combo-Reel(s) pro Woche`, detail: "Combo-Erklärungen sind „Teach“-Posts: Leute speichern und teilen sie, das bringt Reichweite über Deck-Techs hinaus." }
+      : { status: "INFO", title: "Kein Combo-Reel", detail: "Ein Combo-Reel pro Woche (Commander Spellbook) bringt Abwechslung zu den Deck-Techs und wird oft gespeichert." }
+  );
+  checks.push(
     s.story
       ? { status: "INFO", title: "Automatische Story-Grafik an", detail: "Nicht klickbar. Den Beitrag selbst in die Story teilen ist besser, dann führt er direkt zum Post." }
       : { status: "PASS", title: "Stories teilst du selbst", detail: "Den neuen Beitrag per Repost in die Story teilen: klickbar und führt direkt zum Post. Möglichst täglich eine Story, sonst wirkt das Profil verlassen." }
@@ -101,9 +107,11 @@ export async function checkPlan(): Promise<PlanCheck> {
   });
 
   // Empfehlung: Reel-Fokus, 1 Carousel am Sonntag, Story an; eigene Uhrzeiten bleiben
+  // Combo-Tage bleiben; ohne Combo-Tag wird der Mittwoch einer
   const carouselDay = reelsWin === false ? [0, 3] : [0];
+  const comboDays = combos ? s.schedule.map((d, i) => (d.kind === "combo" ? i : -1)).filter((i) => i >= 0) : [carouselDay.includes(3) ? 4 : 3];
   const schedule: DaySlot[] = s.schedule.map((d, i) => ({
-    kind: carouselDay.includes(i) ? "carousel" : "reel",
+    kind: comboDays.includes(i) ? "combo" : carouselDay.includes(i) ? "carousel" : "reel",
     time: d.time,
   }));
   // Story bleibt, wie du sie eingestellt hast (Repost selbst ist klickbar)
@@ -118,7 +126,7 @@ export async function checkPlan(): Promise<PlanCheck> {
 }
 
 function label(k: string): string {
-  return k === "reel" ? "Reel" : k === "carousel" ? "Carousel" : "frei";
+  return k === "reel" ? "Reel" : k === "carousel" ? "Carousel" : k === "combo" ? "Combo-Reel" : "frei";
 }
 
 /** Carousel-Entwuerfe, die laut (neuem) Plan an einem Reel-Tag liegen */

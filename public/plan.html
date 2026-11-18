@@ -29,7 +29,7 @@
   .wp { text-align: center; border-radius: 10px; padding: 6px 0; background: #F4EFE4; font-size: 11px; color: #7A7263; }
   .wp b { display: block; font-size: 12px; color: #1F1D18; }
   .wp small { font-size: 10px; }
-  .wp.reel { background: #DCE8F4; } .wp.carousel { background: #F3E9D2; } .wp.none { opacity: .55; }
+  .wp.reel { background: #DCE8F4; } .wp.combo { background: #EADCF4; } .wp.carousel { background: #F3E9D2; } .wp.none { opacity: .55; }
   .edit { display: inline-block; margin-top: 6px; font-size: 14px; color: #1F1D18; }
   .chk { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid #F1EBDD; }
   .chk:first-of-type { border-top: 0; }
@@ -50,6 +50,7 @@
   .wd { display: block; text-decoration: none; background: #FBF8F2; border-radius: 10px; padding: 6px 0 7px; text-align: center; font-size: 15px; font-weight: 600; color: #1F1D18; }
   .wd.past { color: #C9BFAB; background: transparent; }
   .wd.reel { box-shadow: inset 0 -3px 0 #B6CFE8; }
+  .wd.combo { box-shadow: inset 0 -3px 0 #D9C2EC; }
   .wd i { display: block; width: 8px; height: 8px; border-radius: 50%; margin: 4px auto 0; background: #E2D9C6; }
   .wd.past i { visibility: hidden; }
   .wd i.draft { background: #E9B949; } .wd i.approved { background: #6BA368; } .wd i.published { background: #5B8DC9; } .wd i.failed { background: #A23B2A; }
@@ -99,7 +100,7 @@ async function api(method, url, body) {
 
 function renderAuto(info) {
   const order = [1, 2, 3, 4, 5, 6, 0];
-  const kindLabel = { reel: "Reel", carousel: "Carousel", none: "–" };
+  const kindLabel = { reel: "Reel", carousel: "Carousel", combo: "Combo", none: "–" };
   document.getElementById("auto").innerHTML = `
     <div class="row"><span class="k">Automatische Entwürfe</span><span class="v">${info.dailyDecks ? "<b>an</b>, " + info.lookaheadDays + " Tage im Voraus" : '<span class="off"><b>aus</b></span>'}</span></div>
     <div class="weekplan">${order.map((d) => `<div class="wp ${info.schedule[d].kind}"><span>${DAYNAMES[d]}</span><b>${kindLabel[info.schedule[d].kind]}</b><small>${info.schedule[d].kind === "none" ? "" : info.schedule[d].time}</small></div>`).join("")}</div>
@@ -137,7 +138,8 @@ document.addEventListener("click", async (e) => {
 
 async function load() {
   const [info, items] = await Promise.all([api("GET", "/api/plan/info"), api("GET", "/api/queue")]);
-  info.reelDays = info.schedule.map((x, i) => (x.kind === "reel" ? i : -1)).filter((i) => i >= 0);
+  info.reelDays = info.schedule.map((x, i) => (x.kind === "reel" || x.kind === "combo" ? i : -1)).filter((i) => i >= 0);
+  info.comboDays = info.schedule.map((x, i) => (x.kind === "combo" ? i : -1)).filter((i) => i >= 0);
   renderAuto(info);
 
   const posts = items.filter((i) => i.kind !== "comment_reply" && i.status !== "rejected");
@@ -163,7 +165,7 @@ async function load() {
       if (diff >= 28) { cells.push('<span></span>'); continue; }
       const list = (byDay.get(key(d)) || []).filter((x) => x.kind !== "story");
       const worst = [...list].sort((a, b) => rank[a.status] - rank[b.status])[0];
-      const cls = ["wd", diff < 0 ? "past" : "", diff === 0 ? "today" : "", info.reelDays.includes(d.getDay()) ? "reel" : ""].join(" ");
+      const cls = ["wd", diff < 0 ? "past" : "", diff === 0 ? "today" : "", info.comboDays.includes(d.getDay()) ? "combo" : info.reelDays.includes(d.getDay()) ? "reel" : ""].join(" ");
       cells.push(diff < 0 ? `<span class="${cls}">${d.getDate()}</span>`
         : `<a class="${cls}" href="#d-${key(d)}">${d.getDate()}<i class="${worst ? worst.status : ""}"></i></a>`);
     }
@@ -171,13 +173,14 @@ async function load() {
   }
   document.getElementById("cal").innerHTML =
     `<div class="head">${["Mo","Di","Mi","Do","Fr","Sa","So"].map((n) => `<span>${n}</span>`).join("")}</div>${weeks.join("")}
-     <div class="legend"><span><i style="background:#E9B949"></i>Entwurf</span><span><i style="background:#6BA368"></i>freigegeben</span><span><i style="background:#5B8DC9"></i>veröffentlicht</span><span><i style="background:#E2D9C6"></i>leer</span>${info.reelDays.length ? '<span><i style="background:#B6CFE8;border-radius:2px"></i>Reel-Tag</span>' : ""}</div>`;
+     <div class="legend"><span><i style="background:#E9B949"></i>Entwurf</span><span><i style="background:#6BA368"></i>freigegeben</span><span><i style="background:#5B8DC9"></i>veröffentlicht</span><span><i style="background:#E2D9C6"></i>leer</span>${info.reelDays.length ? '<span><i style="background:#B6CFE8;border-radius:2px"></i>Reel-Tag</span>' : ""}${info.comboDays.length ? '<span><i style="background:#D9C2EC;border-radius:2px"></i>Combo-Tag</span>' : ""}</div>`;
 
   document.getElementById("days").innerHTML = days.map((d, i) => {
     const list = (byDay.get(key(d)) || []).sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
     const title = i === 0 ? "Heute" : i === 1 ? "Morgen" : d.toLocaleDateString("de-DE", { weekday: "long" });
     const date = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
     const reelDay = info.reelDays.includes(d.getDay());
+    const comboDay = info.comboDays.includes(d.getDay());
     const body = list.length
       ? list.map((it) => `<a class="item" href="/queue.html">
           ${(() => { const img = it.previewUrls.find((u) => !u.endsWith(".mp4")); return img ? `<img src="${img}" alt="" loading="lazy">` : `<div class="ph"></div>`; })()}
@@ -185,7 +188,7 @@ async function load() {
           <span class="pill ${it.status}">${STATUS[it.status] || it.status}</span></a>`).join("")
       : i === 0
         ? `<div class="gap">Heute nichts geplant.</div>`
-        : `<div class="gap"><span>Noch nichts geplant${reelDay ? " (Reel-Tag)" : ""}.</span><button data-day="${key(d)}">Deck holen</button></div><div class="err"></div>`;
+        : `<div class="gap"><span>Noch nichts geplant${comboDay ? " (Combo-Tag)" : reelDay ? " (Reel-Tag)" : ""}.</span><button data-day="${key(d)}">${comboDay ? "Combo holen" : "Deck holen"}</button></div><div class="err"></div>`;
     return `<section class="day" id="d-${key(d)}"><h2>${title}<span>${date}</span></h2>${body}</section>`;
   }).join("");
 }
