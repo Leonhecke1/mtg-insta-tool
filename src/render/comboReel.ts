@@ -10,6 +10,7 @@ import { FONT_STACK, MANA_CIRCLE_COLORS } from "./theme";
 import { ColorCode } from "../types";
 import { manaToWords, reelCoverPath, speakable, synthesizeVoices } from "./reel";
 import { humanize } from "../skills/human";
+import { buildSoundtrack, Cue } from "./sound";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const ffmpegPath: string | null = require("ffmpeg-static");
@@ -20,6 +21,12 @@ const ffmpegPath: string | null = require("ffmpeg-static");
  * gelbe Untertitel Wort fuer Wort in der Bildmitte. Daten von Commander Spellbook.
  *
  *   Hook -> je Karte "PIECE i/n" -> THE LOOP (Schritte + Zaehler) -> RESULT -> Preis -> Frage
+ *
+ * Schnitt und Look nach dem /stick-figure-Skill aus
+ * github.com/artemnovitckii/claude-animation-skills (MIT): Wischuebergaenge mit
+ * Bewegungsunschaerfe, Handkamera-Drift + langsamer Push-in, Aufprall = Burst,
+ * Wackeln und Blitz, Vignette + Koernung, Untertitel mit 1-2 Woertern
+ * (klein, ohne Satzzeichen), Soundeffekte und Musik im Code erzeugt (sound.ts).
  */
 
 const W = 1080;
@@ -58,6 +65,54 @@ interface TimedBeat extends Beat {
 }
 
 const NUM = ["zero", "One", "Two", "Three", "Four", "Five"];
+
+// Zeitpunkte innerhalb der Szenen (Bild und Ton nutzen dieselben Werte)
+const INF_AT = 1.4; // Ergebnis: Zaehler springt auf unendlich
+const FAN_AT = 0.1; // Hook: erste Karte fliegt ein
+const FAN_STEP = 0.15;
+const LAND = 0.32; // ab Start einer Animation, bis sie "landet" (easeOutBack-Spitze)
+
+/** Ton-Cues und Aufprall-Momente aus der Zeitachse */
+function soundCues(beats: TimedBeat[], ncards: number): { cues: Cue[]; impacts: [number, number][]; resolveAt: number } {
+  const cues: Cue[] = [];
+  const impacts: [number, number][] = [];
+  let resolveAt = beats[beats.length - 1].start;
+  beats.forEach((b, i) => {
+    if (i > 0) cues.push({ at: b.start - 0.22, kind: "whoosh" }); // Wischuebergang
+    switch (b.kind) {
+      case "hook":
+        for (let k = 0; k < ncards; k++) cues.push({ at: b.start + FAN_AT + k * FAN_STEP + LAND, kind: "pop", gain: 0.8 + 0.1 * k });
+        cues.push({ at: b.start + 0.05, kind: "sparkle", gain: 0.6 });
+        break;
+      case "piece":
+        cues.push({ at: b.start + 0.05 + LAND, kind: "thud" });
+        impacts.push([b.start + 0.05 + LAND, 0.25]);
+        cues.push({ at: b.start + 0.6 + 0.15, kind: "tick" });
+        break;
+      case "step":
+        cues.push({ at: b.start + 0.3 + 0.15, kind: "pop", gain: 0.6 });
+        break;
+      case "result": {
+        // Riser in den Ergebnis-Moment, Ticks beim Hochzaehlen, dann Aufprall
+        const hit = b.start + INF_AT;
+        cues.push({ at: hit - 1.6, kind: "riser", dur: 1.6 });
+        for (let at = 0; at < INF_AT; at += 0.25) cues.push({ at: b.start + at, kind: "tick" });
+        cues.push({ at: hit, kind: "impact" }, { at: hit + 0.05, kind: "sparkle" });
+        impacts.push([hit, 1]);
+        resolveAt = hit;
+        break;
+      }
+      case "price":
+        for (let at = 0; at < 0.9; at += 0.07) cues.push({ at: b.start + at, kind: "tick", gain: 0.6 });
+        cues.push({ at: b.start + 0.9, kind: "chime" });
+        break;
+      case "cta":
+        cues.push({ at: b.start + 0.3, kind: "sparkle", gain: 0.7 });
+        break;
+    }
+  });
+  return { cues, impacts, resolveAt };
+}
 
 /** Kurze, sprechbare Fassung eines Ergebnisses ("Infinite colorless mana") */
 function resultShort(c: Combo): string {
@@ -133,7 +188,7 @@ function sceneHtml(b: TimedBeat, c: Combo, hookScreen: string): string {
         <div class="chip anim" data-d="0" data-y="-30">COMBO</div>
         <h1 class="big anim" data-d="0.05" data-y="50">${escapeHtml(hookScreen)}</h1>
         <div class="fan">${c.cards
-          .map((k, i) => `<div class="fanc anim" data-d="${0.2 + i * 0.2}" data-y="400" style="--x:${dx[i] ?? 0}px;--r:${rot[i] ?? 0}deg">${card(k.image, "mid")}</div>`)
+          .map((k, i) => `<div class="fanc anim" data-d="${FAN_AT + i * FAN_STEP}" data-y="400" style="--x:${dx[i] ?? 0}px;--r:${rot[i] ?? 0}deg">${card(k.image, "mid")}</div>`)
           .join("")}</div>
       </section>`;
     }
@@ -156,6 +211,7 @@ function sceneHtml(b: TimedBeat, c: Combo, hookScreen: string): string {
     case "result":
       return `<section ${attrs}>
         <div class="chip anim" data-d="0" data-y="-30">RESULT</div>
+        <div class="burst" data-at="${INF_AT}"></div>
         <div class="inf anim" data-d="0" data-s="0.4" data-loop="1">×1</div>
         <div class="res anim" data-d="0.1" data-s="0.8">${c.results.slice(0, 3).map((r) => `<div>${escapeHtml(r)}</div>`).join("")}</div>
         ${c.prerequisites[0] ? `<div class="need anim" data-d="0.6" data-y="30"><b>You need:</b> ${escapeHtml(c.prerequisites[0])}</div>` : ""}
@@ -176,7 +232,7 @@ function sceneHtml(b: TimedBeat, c: Combo, hookScreen: string): string {
   }
 }
 
-function pageHtml(c: Combo, beats: TimedBeat[], total: number, hookScreen: string): string {
+function pageHtml(c: Combo, beats: TimedBeat[], total: number, hookScreen: string, impacts: [number, number][]): string {
   const colors = c.identity.split("").filter((x) => "WUBRG".includes(x)) as ColorCode[];
   const accent = colors.length ? MANA_CIRCLE_COLORS[colors[0]] : "#F8E7B9";
   const bg = c.cards[0]?.art ?? c.cards[0]?.image ?? "";
@@ -219,42 +275,97 @@ function pageHtml(c: Combo, beats: TimedBeat[], total: number, hookScreen: strin
   .price { position: absolute; left: 0; right: 0; top: 520px; text-align: center; font-size: 230px; font-weight: 900; color: ${accent}; font-variant-numeric: tabular-nums; text-shadow: 0 10px 60px rgba(0,0,0,.6); }
   .sub { position: absolute; left: 0; right: 0; top: 820px; text-align: center; font-size: 42px; font-weight: 600; color: rgba(255,255,255,.85); }
   .pill { position: absolute; left: 0; right: 0; top: 1060px; margin: 0 auto; width: fit-content; font-size: 50px; font-weight: 900; color: #1F1D18; background: ${accent}; padding: 20px 40px; border-radius: 999px; }
-  /* Grosse gelbe Untertitel Wort fuer Wort (wie im Vorbild) */
-  #cap { position: absolute; left: 50px; right: 50px; top: 1330px; text-align: center; font-size: 78px; line-height: 1.1; font-weight: 900; color: #FFD84A;
-         -webkit-text-stroke: 3px #000; paint-order: stroke fill; text-shadow: 0 6px 0 #000, 0 0 30px rgba(0,0,0,.8); }
+  /* Stil nach /stick-figure (claude-animation-skills): Burst, Blitz, Vignette, Koernung */
+  .burst { position: absolute; left: 50%; top: 330px; width: 1400px; height: 1400px; margin-left: -700px; margin-top: -700px; border-radius: 50%; opacity: 0;
+           background: repeating-conic-gradient(from 0deg, ${accent}cc 0deg 7deg, transparent 7deg 20deg);
+           -webkit-mask: radial-gradient(circle, transparent 18%, #000 30%, transparent 70%); mask: radial-gradient(circle, transparent 18%, #000 30%, transparent 70%); }
+  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+  #vig { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 70% 60% at 50% 47%, rgba(0,0,0,0) 55%, rgba(10,5,20,.45) 100%); }
+  #grain { position: absolute; inset: -256px; pointer-events: none; mix-blend-mode: overlay; opacity: .09; }
+  /* Untertitel: 1-2 Woerter, klein geschrieben, weiss mit dunkler Kontur, poppen auf */
+  #cap { position: absolute; left: 40px; right: 40px; top: 1255px; text-align: center; font-size: 76px; line-height: 1.1; font-weight: 900; color: #fff;
+         -webkit-text-stroke: 14px #111; paint-order: stroke fill; text-shadow: 0 6px 20px rgba(0,0,0,.55); transform-origin: 50% 50%; }
 </style></head><body>
+  <svg width="0" height="0" style="position:absolute"><filter id="hb" x="-20%" y="0" width="140%" height="100%"><feGaussianBlur id="hbd" stdDeviation="0 0"/></filter></svg>
   <div id="bg"></div><div id="shade"></div>
   <div id="stage">
     ${beats.map((b) => sceneHtml(b, c, hookScreen)).join("\n")}
-    <div id="cap"></div>
   </div>
+  <div id="vig"></div><div id="grain"></div><div id="flash"></div>
+  <div id="cap"></div>
 <script>
   const TOTAL = ${total};
   const BEATS = ${JSON.stringify(beats.map((b) => ({ start: b.start, dur: b.dur, cap: manaToWords(b.say), voice: b.voiceSec })))};
-  // Untertitel: 2-4 Woerter pro Stueck, ueber die Sprechdauer verteilt
+  // Aufprall-Momente: [Zeitpunkt, Staerke] -> Wackeln + Blitz
+  const IMPACTS = ${JSON.stringify(impacts)};
+  // Untertitel: hoechstens 2 Woerter / 13 Zeichen, Bruch nach Satzzeichen, ueber die Sprechdauer verteilt
+  const capText = (s) => s.toLowerCase().replace(/[-\\u2013\\u2014]/g, " ").replace(/[^\\p{L}\\p{N}% ]/gu, "").replace(/\\s+/g, " ").trim();
   BEATS.forEach((b) => {
     const words = b.cap.split(/\\s+/).filter(Boolean), chunks = [];
     let cur = [];
-    for (const w of words) { cur.push(w); if (cur.join(" ").length >= 14 || /[.,:;!?]$/.test(w)) { chunks.push(cur.join(" ")); cur = []; } }
+    for (const w of words) {
+      if (cur.length && (cur.length >= 2 || (cur.join(" ") + " " + w).length > 13)) { chunks.push(cur.join(" ")); cur = []; }
+      cur.push(w);
+      if (/[.,:;!?]$/.test(w)) { chunks.push(cur.join(" ")); cur = []; }
+    }
     if (cur.length) chunks.push(cur.join(" "));
     const span = (b.voice || b.dur - 0.3), total = chunks.reduce((n, c) => n + c.length + 2, 0);
     let at = b.start + 0.1;
-    b.chunks = chunks.map((c) => { const s = at; at += span * ((c.length + 2) / total); return { from: s, text: c }; });
+    b.chunks = chunks.map((c) => { const s = at; at += span * ((c.length + 2) / total); return { from: s, to: at, text: capText(c) }; }).filter((c) => c.text);
   });
+  const easeIn = (t) => t * t * t;
   const easeOut = (t) => 1 - Math.pow(1 - t, 3);
   const easeOutBack = (t) => { const c = 1.4; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
   const clamp = (x) => Math.max(0, Math.min(1, x));
   const sections = [...document.querySelectorAll(".beat")];
   const cap = document.getElementById("cap");
   const bg = document.getElementById("bg");
+  const stage = document.getElementById("stage");
+  const flash = document.getElementById("flash");
+  const hbd = document.getElementById("hbd");
+  // Koernung: 4 Rauschkacheln, pro Bild gewechselt und verschoben
+  const grainEl = document.getElementById("grain");
+  const tiles = [0, 1, 2, 3].map((k) => {
+    const cv = document.createElement("canvas"); cv.width = cv.height = 256;
+    const g = cv.getContext("2d"), id = g.createImageData(256, 256);
+    let s = k * 9973 + 11;
+    for (let i = 0; i < id.data.length; i += 4) { s = (s * 16807) % 2147483647; const v = 128 + ((s / 2147483647) - 0.5) * 120; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; }
+    g.putImageData(id, 0, 0); return "url(" + cv.toDataURL() + ")";
+  });
+  const WT = 0.2; // halbe Wischdauer (6 Bilder)
   window.renderAt = (t) => {
+    const f = Math.round(t * 30);
     bg.style.transform = "scale(" + (1.15 - 0.1 * t / TOTAL) + ")";
+    // Kamera: Handkamera-Drift + Wackeln bei Aufprall
+    let sx = Math.sin(t * 0.9) * 6 + Math.sin(t * 2.3) * 3, sy = Math.cos(t * 0.7) * 5, rot = Math.sin(t * 0.5) * 0.35, fl = 0;
+    for (const [at, k] of IMPACTS) {
+      const d = t - at;
+      if (d < 0 || d > 0.45) continue;
+      const a = k * 28 * Math.exp(-d * 9);
+      sx += Math.sin(d * 95) * a; sy += Math.cos(d * 77) * a * 0.7; rot += Math.sin(d * 60) * k * 0.8 * Math.exp(-d * 9);
+      fl = Math.max(fl, k * 0.75 * Math.exp(-d * 10));
+    }
+    flash.style.opacity = String(fl);
+    grainEl.style.backgroundImage = tiles[f % 4];
+    grainEl.style.transform = "translate(" + ((f * 37) % 256) + "px," + ((f * 91) % 256) + "px)";
+    let blurPx = 0;
     sections.forEach((sec, i) => {
       const start = +sec.dataset.start, dur = +sec.dataset.dur, lt = t - start;
-      const fadeIn = i === 0 ? 1 : clamp(lt / 0.2), fadeOut = clamp((start + dur - t) / 0.2);
-      const visible = lt >= 0 && lt <= dur;
-      sec.style.opacity = visible ? String(Math.min(fadeIn, i === sections.length - 1 ? 1 : fadeOut)) : "0";
-      if (!visible) return;
+      const visible = lt >= 0 && (lt < dur || (i === sections.length - 1 && lt <= dur));
+      sec.style.opacity = visible ? "1" : "0";
+      if (!visible) { sec.style.filter = "none"; return; }
+      // Wischuebergang: alte Szene fliegt mit Bewegungsunschaerfe links raus, neue kommt von rechts
+      let dx = 0;
+      if (i < sections.length - 1 && lt > dur - WT) { const p = easeIn((lt - (dur - WT)) / WT); dx = -p * 420; blurPx = p * 40; }
+      if (i > 0 && lt < WT) { const p = 1 - easeOut(lt / WT); dx = p * 420; blurPx = p * 40; }
+      const push = 1 + 0.035 * clamp(lt / dur); // langsames Hineinzoomen
+      stage.style.transform = "translateY(122px) scale(0.85) translate(" + (sx + dx) + "px," + sy + "px) rotate(" + rot + "deg) scale(" + push + ")";
+      sec.style.filter = blurPx > 0.5 ? "url(#hb)" : "none";
+      sec.querySelectorAll(".burst").forEach((el) => {
+        const d = lt - (+el.dataset.at || 0);
+        el.style.opacity = d < 0 ? "0" : String(0.9 * Math.exp(-d * 2.2));
+        el.style.transform = "scale(" + (0.4 + 1.4 * easeOut(clamp(d / 0.6))) + ") rotate(" + d * 25 + "deg)";
+      });
       sec.querySelectorAll(".anim").forEach((el) => {
         const d = +(el.dataset.d || 0), p = clamp((lt - d) / 0.5);
         const e = easeOutBack(p), o = easeOut(clamp((lt - d) / 0.3));
@@ -274,13 +385,17 @@ function pageHtml(c: Combo, beats: TimedBeat[], total: number, hookScreen: strin
       // Loop-Zaehler: x1, x2, x3 ... dann unendlich
       sec.querySelectorAll("[data-loop]").forEach((el) => {
         const k = Math.floor(lt / 0.25) + 1;
-        el.textContent = lt > 1.4 ? "×∞" : "×" + k;
+        el.textContent = lt > ${INF_AT} ? "×∞" : "×" + k;
       });
     });
+    hbd.setAttribute("stdDeviation", blurPx.toFixed(1) + " 0");
     const cur = BEATS.find((b) => t >= b.start && t < b.start + b.dur) || BEATS[BEATS.length - 1];
     const chunk = [...cur.chunks].reverse().find((c) => t >= c.from);
-    const txt = chunk ? chunk.text : "";
+    // nach dem Satz keine stehengebliebenen Woerter
+    const txt = chunk && t < chunk.to + 0.35 ? chunk.text : "";
     if (cap.textContent !== txt) cap.textContent = txt;
+    const k = chunk ? clamp((t - chunk.from) / 0.1) : 1;
+    cap.style.transform = "scale(" + (0.82 + 0.18 * easeOutBack(k)) + ")";
   };
   window.assetsReady = () => Promise.all([...document.images].map((img) => img.complete ? Promise.resolve() : new Promise((r) => { img.onload = img.onerror = r; })));
 </script></body></html>`;
@@ -314,20 +429,44 @@ export async function buildComboReel(
   const total = t;
   const frames = Math.round(total * FPS);
 
+  // Soundeffekte + Untermalung (im Code erzeugt), Musik wird unter der Stimme leiser
+  const { cues, impacts, resolveAt } = soundCues(beats, c.cards.length);
+  const sfxFile = path.join(dir, "sfx.wav");
+  const musicFile = path.join(dir, "music.wav");
+  buildSoundtrack(cues, total, resolveAt, sfxFile, musicFile);
+
   const video = path.join(dir, "reel.mp4");
-  const args = ["-y", "-f", "image2pipe", "-framerate", String(FPS), "-c:v", "mjpeg", "-i", "-"];
+  const args = ["-y", "-f", "image2pipe", "-framerate", String(FPS), "-c:v", "mjpeg", "-i", "-", "-i", sfxFile, "-i", musicFile];
+  const st = "aresample=44100,aformat=channel_layouts=stereo";
+  const end = `apad,atrim=0:${total.toFixed(3)}`;
   const withVoice = voices.some(Boolean);
   if (withVoice) {
     const ins: { idx: number; ms: number }[] = [];
     voices.forEach((v, i) => {
       if (!v) return;
       args.push("-i", v.file);
-      ins.push({ idx: ins.length + 1, ms: Math.round((beats[i].start + 0.1) * 1000) });
+      ins.push({ idx: ins.length + 3, ms: Math.round((beats[i].start + 0.1) * 1000) });
     });
-    const parts = ins.map((a) => `[${a.idx}:a]aresample=44100,aformat=channel_layouts=stereo,adelay=${a.ms}|${a.ms}[a${a.idx}]`);
-    args.push("-filter_complex", [...parts, `${ins.map((a) => `[a${a.idx}]`).join("")}amix=inputs=${ins.length}:normalize=0,apad,atrim=0:${total.toFixed(3)}[a]`].join(";"), "-map", "0:v", "-map", "[a]");
+    const parts = ins.map((a) => `[${a.idx}:a]${st},adelay=${a.ms}|${a.ms}[a${a.idx}]`);
+    args.push(
+      "-filter_complex",
+      [
+        ...parts,
+        `${ins.map((a) => `[a${a.idx}]`).join("")}amix=inputs=${ins.length}:normalize=0,${end},asplit=2[vo][key]`,
+        `[2:a]${st},volume=0.22[mus]`,
+        // Ducking: Musik ~ -10 dB, sobald gesprochen wird
+        `[mus][key]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[mduck]`,
+        `[1:a]${st},volume=0.5[fx]`,
+        `[vo][mduck][fx]amix=inputs=3:normalize=0,alimiter=limit=0.95,${end}[a]`,
+      ].join(";"),
+      "-map", "0:v", "-map", "[a]"
+    );
   } else {
-    args.push("-f", "lavfi", "-t", total.toFixed(3), "-i", "anullsrc=r=44100:cl=stereo", "-map", "0:v", "-map", "1:a");
+    args.push(
+      "-filter_complex",
+      [`[2:a]${st},volume=0.35[mus]`, `[1:a]${st},volume=0.55[fx]`, `[mus][fx]amix=inputs=2:normalize=0,alimiter=limit=0.95,${end}[a]`].join(";"),
+      "-map", "0:v", "-map", "[a]"
+    );
   }
   args.push("-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p", "-r", String(FPS), "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", video);
 
@@ -339,7 +478,7 @@ export async function buildComboReel(
     browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
     const page = await browser.newPage();
     await page.setViewport({ width: W, height: H, deviceScaleFactor: 1 });
-    await page.setContent(pageHtml(c, beats, total, hookScreen), { waitUntil: "networkidle0", timeout: 90_000 });
+    await page.setContent(pageHtml(c, beats, total, hookScreen, impacts), { waitUntil: "networkidle0", timeout: 90_000 });
     await page.evaluate("window.assetsReady()");
     const coverFrame = Math.min(frames - 1, Math.round(1.8 * FPS));
     for (let f = 0; f < frames; f++) {
@@ -359,6 +498,7 @@ export async function buildComboReel(
   onProgress("Combo-Reel: Video wird kodiert", 0.96);
   await done;
   voices.forEach((v) => v && fs.rmSync(v.file, { force: true }));
+  [sfxFile, musicFile].forEach((f) => fs.rmSync(f, { force: true }));
   return { video, cover: fs.existsSync(cover) ? cover : null };
 }
 
