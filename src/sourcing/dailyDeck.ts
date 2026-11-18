@@ -14,6 +14,7 @@ import { notify } from "../push/push";
 import { addItem, listItems } from "../queue/queueStore";
 import { Report, subReport } from "../tasks/tasks";
 import { creditFromText, igCaption } from "../skills/igCaption";
+import { getSettings, slotFor } from "../settings/appSettings";
 
 const noop: Report = () => undefined;
 
@@ -150,8 +151,8 @@ function acceptableListing(d: ArchidektSearchDeck): string | null {
 
 async function candidates(): Promise<{ deck: ArchidektSearchDeck; own: boolean }[]> {
   const out: { deck: ArchidektSearchDeck; own: boolean }[] = [];
-  if (config.archidektOwnUsername) {
-    const own = await searchDecks({ ownerUsername: config.archidektOwnUsername, orderBy: "-createdAt" });
+  if (getSettings().archidektOwnUsername) {
+    const own = await searchDecks({ ownerUsername: getSettings().archidektOwnUsername, orderBy: "-createdAt" });
     out.push(...own.map((deck) => ({ deck, own: true })));
   }
   // Zufaellige Seite der meistgesehenen Commander-Decks fuer Abwechslung
@@ -216,7 +217,7 @@ export async function produceDeckTech(report: Report = noop): Promise<{ job: Job
         }
       );
 
-      if (!own && result.deck.totalPriceEur > config.dailyBudgetMaxEur) {
+      if (!own && result.deck.totalPriceEur > getSettings().budgetMaxEur) {
         report(`${commander} zu teuer (${Math.round(result.deck.totalPriceEur)} €), nächstes Deck`, 0.1);
         updateJob(jobId, { status: "failed", error: "over budget (daily sourcing)" });
         log({ deckId: deck.id, owner: deck.owner.username, commander, at: new Date().toISOString(), outcome: "skipped", reason: `price ${Math.round(result.deck.totalPriceEur)} EUR` });
@@ -258,11 +259,11 @@ function localDayKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
-function postTimeForOffset(offset: number): Date {
-  const when = new Date();
-  when.setDate(when.getDate() + offset);
-  when.setHours(config.dailyPostHour, 0, 0, 0);
-  return when;
+/** Termin + Format fuer "heute + offset Tage" laut Wochenplan (null = Tag ist frei) */
+function slotForOffset(offset: number): { when: Date; kind: "reel" | "carousel" } | null {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return slotFor(d);
 }
 
 function isDayTaken(when: Date): boolean {
@@ -275,9 +276,8 @@ function isDayTaken(when: Date): boolean {
 }
 
 /** Erzeugt Carousel- (+ Story-)Entwurf fuer einen Tag. null = kein passendes Deck. */
-async function draftForDay(when: Date, report: Report = noop): Promise<string | null> {
-  // An Reel-Tagen ersetzt ein animiertes Reel das Carousel
-  const reelDay = config.dailyReelDays.includes(when.getDay());
+async function draftForDay(when: Date, kind: "reel" | "carousel", report: Report = noop): Promise<string | null> {
+  const reelDay = kind === "reel";
   // Fortschritt: Deck finden/rendern 0-55 %, Reel 55-92 %, Story danach
   const produced = await produceDeckTech(subReport(report, 0, reelDay ? 0.55 : 0.85));
   if (!produced) {
@@ -312,14 +312,14 @@ async function draftForDay(when: Date, report: Report = noop): Promise<string | 
     label,
   });
 
-  if (config.dailyStory) {
+  if (getSettings().story) {
     report("Erzeuge Story-Grafik", 0.95);
     addItem({
       id: nanoid(10),
       kind: "story",
       status: "draft",
       createdAt: new Date().toISOString(),
-      scheduledAt: new Date(when.getTime() + 60 * 60_000).toISOString(),
+      scheduledAt: new Date(when.getTime() + getSettings().storyDelayMin * 60_000).toISOString(),
       mediaToken: nanoid(24),
       mediaFiles: [await buildNewPostStory(r.deck, r.slideFiles[0], r.jobDir)],
       sourceJobId: job.id,
@@ -348,10 +348,10 @@ export function ensureDailyDrafts(): Promise<void> {
   return serialized(async () => {
     const created: string[] = [];
     try {
-      for (let offset = 1; offset <= config.dailyLookaheadDays; offset++) {
-        const when = postTimeForOffset(offset);
-        if (isDayTaken(when)) continue;
-        const label = await draftForDay(when);
+      for (let offset = 1; offset <= getSettings().lookaheadDays; offset++) {
+        const slot = slotForOffset(offset);
+        if (!slot || isDayTaken(slot.when)) continue;
+        const label = await draftForDay(slot.when, slot.kind);
         if (!label) break;
         created.push(label);
       }
@@ -378,19 +378,21 @@ export function fetchNextDeck(
     if (day) {
       const m = day.match(/^(\d{4})-(\d{2})-(\d{2})$/);
       if (!m) throw new Error("Ungültiges Datum");
-      const when = new Date(+m[1], +m[2] - 1, +m[3], config.dailyPostHour, 0, 0, 0);
-      if (when.getTime() < Date.now()) throw new Error("Der Termin liegt in der Vergangenheit");
-      if (isDayTaken(when)) throw new Error("An diesem Tag ist schon ein Post geplant");
-      const label = await draftForDay(when, report);
+      // An einem "freien" Tag des Wochenplans trotzdem erlaubt: dann Reel um 19:00
+      const date = new Date(+m[1], +m[2] - 1, +m[3]);
+      const slot = slotFor(date) ?? { when: new Date(+m[1], +m[2] - 1, +m[3], 19, 0, 0, 0), kind: "reel" as const };
+      if (slot.when.getTime() < Date.now()) throw new Error("Der Termin liegt in der Vergangenheit");
+      if (isDayTaken(slot.when)) throw new Error("An diesem Tag ist schon ein Post geplant");
+      const label = await draftForDay(slot.when, slot.kind, report);
       if (!label) throw new Error("Kein passendes Deck gefunden, später nochmal versuchen");
-      return { label, scheduledAt: when.toISOString() };
+      return { label, scheduledAt: slot.when.toISOString() };
     }
     for (let offset = 1; offset <= 60; offset++) {
-      const when = postTimeForOffset(offset);
-      if (isDayTaken(when)) continue;
-      const label = await draftForDay(when, report);
+      const slot = slotForOffset(offset);
+      if (!slot || isDayTaken(slot.when)) continue;
+      const label = await draftForDay(slot.when, slot.kind, report);
       if (!label) throw new Error("Kein passendes Deck gefunden, später nochmal versuchen");
-      return { label, scheduledAt: when.toISOString() };
+      return { label, scheduledAt: slot.when.toISOString() };
     }
     throw new Error("Die nächsten 60 Tage sind schon verplant");
   });
@@ -398,12 +400,5 @@ export function fetchNextDeck(
 
 /** Einstellungen des Automatismus fuer die Plan-Ansicht */
 export function planInfo() {
-  return {
-    dailyDecks: config.dailyDecks,
-    postHour: config.dailyPostHour,
-    lookaheadDays: config.dailyLookaheadDays,
-    story: config.dailyStory,
-    reelDays: config.dailyReelDays,
-    budgetMaxEur: config.dailyBudgetMaxEur,
-  };
+  return getSettings();
 }

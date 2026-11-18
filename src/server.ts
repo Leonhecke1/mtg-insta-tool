@@ -16,13 +16,15 @@ import {
   QueueKind,
   updateItem,
 } from "./queue/queueStore";
-import { mediaUrls, runSchedulerNow, startScheduler } from "./queue/scheduler";
+import { mediaUrls, runDailyNow, runSchedulerNow, startScheduler } from "./queue/scheduler";
 import { fetchNextDeck, planInfo } from "./sourcing/dailyDeck";
 import { getTask, listTasks, startTask } from "./tasks/tasks";
 import { creditFromText, igCaption } from "./skills/igCaption";
 import { lintCaption } from "./skills/caption";
 import { humanize } from "./skills/human";
 import { analyzeProfile, saveAnswers } from "./skills/profile";
+import { carouselDraftsOnReelDays, checkPlan } from "./skills/plan";
+import { getSettings, saveSettings } from "./settings/appSettings";
 import { applyPronunciation, DEFAULT_RULES, getRules, saveRules } from "./settings/pronunciation";
 import * as fs from "fs";
 import { authEnabled, handleLogin, handleLogout, requireAuth } from "./auth";
@@ -415,6 +417,63 @@ app.put("/api/profile/answers", (req, res) => {
 
 app.get("/api/plan/info", (_req, res) => {
   res.json({ ...planInfo(), instagram: instagramConfigured() });
+});
+
+// --- Einstellungen aus der App (Automatik, Wochenplan ...) ---
+app.get("/api/settings/app", (_req, res) => {
+  res.json(getSettings());
+});
+app.put("/api/settings/app", (req, res) => {
+  const saved = saveSettings(req.body ?? {});
+  runDailyNow(); // sofort nach dem neuen Plan Entwuerfe anlegen
+  res.json(saved);
+});
+
+// --- Plan-Check (/ig-plan) ---
+app.get("/api/plan/check", async (_req, res) => {
+  try {
+    res.json(await checkPlan());
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+app.post("/api/plan/apply", async (_req, res) => {
+  const { recommended } = await checkPlan();
+  const saved = saveSettings(recommended);
+  runDailyNow();
+  res.json(saved);
+});
+/** Carousel-Entwuerfe an Reel-Tagen in Reels umwandeln (Hintergrund-Auftrag) */
+app.post("/api/plan/convert-drafts", (_req, res) => {
+  const drafts = carouselDraftsOnReelDays();
+  if (!drafts.length) return res.json({ converted: 0 });
+  const task = startTask(`${drafts.length} Carousel(s) → Reel`, async (report) => {
+    let done = 0;
+    for (const [i, item] of drafts.entries()) {
+      const r = getJob(item.sourceJobId!)?.result;
+      if (!r) continue;
+      const video = await buildReel(r.deck, r.jobDir, {
+        onProgress: (step, p) => report(`${item.label}: ${step}`, (i + (p ?? 0)) / drafts.length),
+      });
+      const cover = reelCoverPath(video);
+      const ig = igCaption(r.deck, { kind: "reel", archidektUrl: getJob(item.sourceJobId!)?.input.archidektUrl, creditUser: creditFromText(r.texts.caption.body) });
+      addItem({
+        ...item,
+        id: nanoid(10),
+        kind: "reel",
+        createdAt: new Date().toISOString(),
+        mediaToken: nanoid(24),
+        mediaFiles: fs.existsSync(cover) ? [video, cover] : [video],
+        caption: ig.caption,
+        firstComment: ig.firstComment ?? undefined,
+        keywords: ig.keywords,
+      });
+      updateItem(item.id, { status: "rejected" });
+      done++;
+    }
+    return { converted: done };
+  }, { notifyOnDone: (r) => `${r.converted} Reel(s) warten auf Freigabe.` });
+  res.status(202).json({ taskId: task.id });
 });
 
 app.post("/api/queue/fetch-deck", (req, res) => {

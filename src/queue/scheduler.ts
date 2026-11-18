@@ -13,6 +13,7 @@ import {
 import { draftReply } from "../llm/replyDrafter";
 import { refreshTokenIfDue } from "../instagram/token";
 import { isSpamComment } from "./spam";
+import { getSettings } from "../settings/appSettings";
 import { notify } from "../push/push";
 import { ensureDailyDrafts, invalidateInstagramHistory } from "../sourcing/dailyDeck";
 import { nanoid } from "nanoid";
@@ -141,7 +142,7 @@ async function pollComments(): Promise<void> {
       }
     }
     if (ruleSpam || replyText === "SKIP") {
-      if (config.autoHideSpam) {
+      if (getSettings().autoHideSpam) {
         await hideComment(c.id)
           .then(() => console.log(`[scheduler] hid spam comment by @${c.username}`))
           .catch((err) => console.error("[scheduler] hide failed:", err.message));
@@ -152,14 +153,14 @@ async function pollComments(): Promise<void> {
     if (!config.anthropicApiKey) continue;
 
     // Auto-Freigabe nur fuer frische Kommentare mit fertigem Antworttext
-    const auto = config.autoReply && replyText.trim() !== "" && ageH <= 48;
+    const auto = getSettings().autoReply && replyText.trim() !== "" && ageH <= 48;
     addItem({
       id: nanoid(10),
       kind: "comment_reply",
       status: auto ? "approved" : "draft",
       createdAt: new Date().toISOString(),
       scheduledAt: new Date(
-        Date.now() + (auto ? config.autoReplyDelayMin * 60_000 : 0)
+        Date.now() + (auto ? getSettings().autoReplyDelayMin * 60_000 : 0)
       ).toISOString(),
       mediaToken: nanoid(24),
       mediaFiles: [],
@@ -174,8 +175,8 @@ async function pollComments(): Promise<void> {
   if (newReplies.length) {
     await notify({
       title: newReplies.length === 1 ? `Neuer Kommentar von @${newReplies[0]}` : `${newReplies.length} neue Kommentare`,
-      body: config.autoReply
-        ? `Antwort geht in ${config.autoReplyDelayMin} min automatisch raus. Tippen zum Prüfen.`
+      body: getSettings().autoReply
+        ? `Antwort geht in ${getSettings().autoReplyDelayMin} min automatisch raus. Tippen zum Prüfen.`
         : "Antwortentwurf wartet auf Freigabe.",
       tag: "comments",
     }).catch(() => undefined);
@@ -209,7 +210,7 @@ let dailyRunning = false;
 
 // Eigener Lauf, damit langsames Rendern faellige Posts nicht blockiert
 async function dailyTick(): Promise<void> {
-  if (!config.dailyDecks || dailyRunning || Date.now() - lastDailyCheck < 3600_000) return;
+  if (!getSettings().dailyDecks || dailyRunning || Date.now() - lastDailyCheck < 3600_000) return;
   dailyRunning = true;
   lastDailyCheck = Date.now();
   try {
@@ -219,6 +220,12 @@ async function dailyTick(): Promise<void> {
   } finally {
     dailyRunning = false;
   }
+}
+
+/** Nach geaenderten Einstellungen sofort neu planen statt erst in einer Stunde */
+export function runDailyNow(): void {
+  lastDailyCheck = 0;
+  void dailyTick();
 }
 
 /** Sofort einen Durchlauf starten (z. B. nach "Jetzt posten"), statt bis zum naechsten Intervall zu warten. */
@@ -232,7 +239,7 @@ export function startScheduler(): void {
       "[scheduler] IG_USER_ID / IG_ACCESS_TOKEN / PUBLIC_BASE_URL not set - auto-publishing disabled"
     );
   }
-  if (!instagramConfigured() && !config.dailyDecks) return;
+  // Laeuft immer: Automatik und Instagram-Verbindung koennen sich zur Laufzeit aendern
   console.log(`[scheduler] running every ${config.schedulerIntervalSec}s`);
   setInterval(() => {
     void tick();

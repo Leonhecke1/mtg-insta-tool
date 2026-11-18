@@ -9,6 +9,7 @@ import { analyzeDeck, cardRole, DeckAnalysis, shortName } from "../llm/fallback"
 
 const ENGINE_INTRO: Record<number, string> = { 1: "One card makes it work.", 2: "Two cards make it work.", 3: "Three cards make it work." };
 import { applyPronunciation } from "../settings/pronunciation";
+import { getSettings } from "../settings/appSettings";
 import { escapeHtml } from "./components";
 import { FONT_STACK, MANA_CIRCLE_COLORS } from "./theme";
 
@@ -46,6 +47,8 @@ interface Beat {
 
 export interface ReelScript {
   hook: string;
+  /** Kurzfassung des Hooks fuer das Bild (hoechstens ~6 Woerter) */
+  hookScreen: string;
   beats: Beat[];
   analysis: DeckAnalysis;
 }
@@ -63,6 +66,14 @@ const HOOKS: Record<string, string[]> = {
   lifegain: ["Gaining life has never hit this hard.", "Every life point is ammunition."],
   voltron: ["One creature. Twenty-one damage.", "Suit up one threat and end it."],
   dragons: ["Ramp into a sky full of dragons.", "Turn five: dragons. Turn six: game."],
+};
+/** Fuer den Fragen-Hook: "How does a 118 euro deck ...?" */
+const QUESTION: Record<string, string> = {
+  tokens: "make an army every turn", counters: "grow out of control", graveyard: "keep coming back from the graveyard",
+  aristocrats: "drain the whole table", spellslinger: "chain spell after spell", artifacts: "turn junk into value",
+  enchantress: "draw a card off every enchantment", landfall: "turn every land drop into an attack",
+  blink: "get every trigger twice", lifegain: "turn life into damage", voltron: "end games with one creature",
+  dragons: "fill the sky with dragons",
 };
 const GENERIC_HOOKS = ["This deck punches way above its price.", "A commander nobody expects at the table."];
 
@@ -123,19 +134,39 @@ function speakable(s: string): string {
     .trim();
 }
 
-export function reelScript(deck: Deck, hookOverride?: string): ReelScript {
+export function reelScript(deck: Deck, hookOverride?: string, length: "short" | "full" = getSettings().reelLength): ReelScript {
   const a = analyzeDeck(deck);
   const seed = deck.commanders.map((c) => c.name).join("|");
   const tribal = /tribal$/.test(a.style) ? a.style.replace(/ tribal$/, "") : null;
 
-  let hook = hookOverride?.trim() || "";
-  if (!hook) {
-    if (tribal) hook = `A whole army of ${tribal}. One leader.`;
-    else if (a.archetypeId && HOOKS[a.archetypeId]) hook = pick(HOOKS[a.archetypeId], seed);
-    else hook = pick(GENERIC_HOOKS, seed);
-  }
-
   const price = Math.round(a.priceEur);
+  const euros = (n: number) => (n < 1 ? `${Math.round(n * 100)} cents` : n < 10 ? `${n.toFixed(2)} euros` : `${Math.round(n)} euros`);
+  const eurosScreen = (n: number) => (n < 10 ? `€${n.toFixed(2)}` : `€${Math.round(n)}`);
+
+  // Schluesselkarten nach Preis absteigend: #3 ist die guenstigste -> Aufloesung des Hooks
+  a.keyCards = [...a.keyCards].sort((x, y) => (y.priceEur ?? 0) - (x.priceEur ?? 0));
+  const third = a.keyCards.length === 3 ? a.keyCards[2] : null;
+
+  // Hook nach /ig-reel: oeffnet eine Frage, die das Reel spaeter beantwortet.
+  // Gesprochen und auf dem Bild getrennt (Bild: hoechstens ~6 Woerter).
+  const options: { say: string; screen: string }[] = [];
+  if (third && third.priceEur != null) {
+    options.push({
+      say: `Three cards make this deck work, and the third one costs ${euros(third.priceEur)}.`,
+      screen: `3 cards. #3 costs ${eurosScreen(third.priceEur)}`,
+    });
+  }
+  const question = (a.archetypeId && QUESTION[a.archetypeId]) || "win this many games";
+  options.push({ say: `How does a ${price} euro deck ${question}?`, screen: `€${price} deck. How?` });
+  if (tribal) options.push({ say: `A whole army of ${tribal}. One leader.`, screen: `A whole army of ${tribal}` });
+  else if (a.archetypeId && HOOKS[a.archetypeId]) {
+    const h = pick(HOOKS[a.archetypeId], seed);
+    options.push({ say: h, screen: h.split(/\s+/).length <= 6 ? h : h.split(/[.,]/)[0] });
+  }
+  let hookPick = pick(options, seed);
+  if (hookOverride?.trim()) hookPick = { say: hookOverride.trim(), screen: hookOverride.trim() };
+  const hook = hookPick.say;
+  const numberedHook = third !== null && hookPick === options[0] && !hookOverride?.trim();
   // Alle Faehigkeiten vorlesen, solange es nicht zu lang wird (~260 Zeichen)
   const abilitiesSpoken: string[] = [];
   for (const ab of a.abilities) {
@@ -161,24 +192,32 @@ export function reelScript(deck: Deck, hookOverride?: string): ReelScript {
   // Spielplan: Schritte ohne Klammer-Zusaetze ("Ramp (6 sources)" -> "ramp")
   const planSpoken = a.steps.map((st, i) => {
     const plain = st.replace(/\s*\([^)]*\)/g, "");
-    return i === 0 ? plain : plain.charAt(0).toLowerCase() + plain.slice(1);
+    return plain.charAt(0).toLowerCase() + plain.slice(1);
   });
-  beats.push({ kind: "plan", base: 3.4, say: `The plan: ${planSpoken[0]}, ${planSpoken[1]}, then ${planSpoken[2]}.` });
+  beats.push({ kind: "plan", base: 3.4, say: `Here's how it wins: ${planSpoken[0]}, ${planSpoken[1]}, then ${planSpoken[2]}.` });
 
   if (a.keyCards.length) {
-    beats.push({
-      kind: "engine",
-      base: 5,
-      // Kurznamen ("Toxrill" statt "Toxrill, the Corrosive") und je ein Satz, was die Karte tut
-      say: `${ENGINE_INTRO[a.keyCards.length] ?? "These cards make it work."} ${a.keyCards
-        .map((c) => `${shortName(c.name.split(" // ")[0])} ${cardRole(c)}.`)
-        .join(" ")}`,
-    });
+    // Kurznamen ("Toxrill" statt "Toxrill, the Corrosive") und je ein Satz, was die Karte tut.
+    // Beim nummerierten Hook loest #3 die offene Frage auf.
+    const nm = (c: (typeof a.keyCards)[number]) => shortName(c.name.split(" // ")[0]);
+    const ORD = ["Number one", "Number two", "And number three"];
+    const say = numberedHook
+      ? a.keyCards
+          .map((c, i) =>
+            i === 2
+              ? `And number three, the one for ${euros(c.priceEur ?? 0)}: ${nm(c)}. It ${cardRole(c)}.`
+              : `${ORD[i]}: ${nm(c)}. It ${cardRole(c)}.`
+          )
+          .join(" ")
+      : `The engine is ${["", "one card", "two cards", "three cards"][a.keyCards.length] ?? "a few cards"}. ${a.keyCards
+          .map((c, i) => `${i === a.keyCards.length - 1 && i > 0 ? "And " : ""}${nm(c)} ${cardRole(c)}.`)
+          .join(" ")}`;
+    beats.push({ kind: "engine", base: 5.5, say });
   }
 
   const avg = a.avgManaValue.toFixed(1);
-  const pace = a.avgManaValue < 2.8 ? "so it comes down fast" : a.avgManaValue < 3.5 ? "a smooth curve" : "so it goes big";
-  beats.push({ kind: "curve", base: 3.2, say: `Average mana value ${avg}, ${pace}.` });
+  const pace = a.avgManaValue < 2.8 ? "so it comes down fast" : a.avgManaValue < 3.5 ? "a smooth, steady curve" : "so it plans to go big";
+  beats.push({ kind: "curve", base: 3.2, say: `The curve sits at ${avg}, ${pace}.` });
 
   if (statParts.length >= 2) {
     beats.push({ kind: "stats", base: 2.6, say: `${listJoin(statParts)} keep it running.` });
@@ -186,12 +225,19 @@ export function reelScript(deck: Deck, hookOverride?: string): ReelScript {
   const priciest = a.priciest && a.priciest.priceEur >= 5 ? a.priciest : null;
   beats.push({
     kind: "price",
-    base: priciest ? 3.2 : 2.2,
-    say: `All of it for about ${price} euros.${priciest ? ` The priciest card is ${priciest.name.split(" // ")[0]}.` : ""}`,
+    base: priciest ? 3.4 : 2.4,
+    say: `And the best part: all of this for about ${price} euros.${
+      priciest ? ` The most expensive card is ${shortName(priciest.name.split(" // ")[0])} at ${euros(priciest.priceEur)}.` : ""
+    }`,
   });
-  beats.push({ kind: "cta", base: 2.6, say: "Full list in the caption. Follow for a new deck every day." });
+  // Schluss mit einer Frage (bringt Kommentare) statt "Follow"
+  beats.push({ kind: "cta", base: 2.8, say: "Which card would you swap first? Tell me in the comments." });
 
-  return { hook, beats, analysis: a };
+  // Kurz (~15 s): die Kernaussage muss vor der durchschnittlichen Wiedergabedauer
+  // kommen (/ig-reel: das Versprechen vor der Haelfte einloesen)
+  const SHORT: BeatKind[] = ["hook", "commander", "engine", "price", "cta"];
+  const final = length === "short" ? beats.filter((b) => SHORT.includes(b.kind)) : beats;
+  return { hook, hookScreen: hookPick.screen, beats: final, analysis: a };
 }
 
 // ===========================================================================
@@ -224,7 +270,7 @@ function beatHtml(b: TimedBeat, deck: Deck, s: ReelScript): string {
       return `<section ${attrs}>
         <div class="stack" style="top:170px">
           <div class="chip anim" data-d="0" data-y="-30">COMMANDER DECK TECH</div>
-          <h1 class="hook anim" data-d="0.08" data-y="60" data-s="0.92">${escapeHtml(s.hook)}</h1>
+          <h1 class="hook anim" data-d="0.08" data-y="60" data-s="0.92">${escapeHtml(s.hookScreen)}</h1>
         </div>
         <div class="stack" style="top:640px">
           ${cmd?.imageArtCrop ? `<div class="teaser anim" data-d="0.2" data-y="120" data-s="0.88" data-r="-4"><img src="${escapeHtml(cmd.imageArtCrop)}" alt=""></div>` : cardImg(cmd?.imageNormal ?? null, "card hero anim", 'data-d="0.25" data-y="140" data-s="0.85"')}
@@ -312,7 +358,7 @@ function beatHtml(b: TimedBeat, deck: Deck, s: ReelScript): string {
         <div class="roles">
           ${a.keyCards
             .map(
-              (c, i) => `<div class="role anim" data-d="${0.5 + i * 0.35}" data-y="30"><b>${escapeHtml(shortName(c.name.split(" // ")[0]))}</b> ${escapeHtml(cardRole(c))}</div>`
+              (c, i) => `<div class="role anim" data-d="${0.5 + i * 0.35}" data-y="30"><b>#${i + 1} ${escapeHtml(shortName(c.name.split(" // ")[0]))}</b> ${escapeHtml(cardRole(c))}</div>`
             )
             .join("")}
         </div>
@@ -364,9 +410,9 @@ function beatHtml(b: TimedBeat, deck: Deck, s: ReelScript): string {
       return `<section ${attrs}>
         <div class="stack" style="top:440px">
           ${cardImg(cmd?.imageNormal ?? null, "card tiny anim", 'data-d="0" data-s="0.6"')}
-          <h2 class="title anim" data-d="0.15" data-y="40">Full decklist<br>in the caption</h2>
-          <div class="follow anim" data-d="0.45" data-y="40" data-s="0.9">Follow @floating.mana</div>
-          <div class="sub anim" data-d="0.6" data-y="20">a new commander deck every day</div>
+          <h2 class="title anim" data-d="0.15" data-y="40">Which card would<br>you swap first?</h2>
+          <div class="follow anim" data-d="0.45" data-y="40" data-s="0.9">Tell me in the comments</div>
+          <div class="sub anim" data-d="0.6" data-y="20">Full decklist in the first comment</div>
         </div>
       </section>`;
   }

@@ -313,3 +313,14 @@ der App brechen nichts ab. Fertige und fehlgeschlagene Aufträge melden sich zus
   Kandidaten zum Anpinnen.
 
 Reels halten Instagrams sichere Zone ein (oben ~210 px, unten ~480 px, rechts die Buttons frei).
+
+## Einstellungen in der App
+
+Unter **Einstellungen → Automatik & Wochenplan**: Für jeden Wochentag Reel, Carousel oder nichts samt
+Uhrzeit, Vorlauf in Tagen, Budget, eigener Archidekt-Name, Story-Grafik an/aus, Reel-Länge,
+Spam-Filter und Auto-Antworten. Gespeichert in `DATA_DIR/app-settings.json` und sofort wirksam.
+Die `DAILY_*`-Werte aus der `.env` gelten nur bis zum ersten Speichern.
+
+**Plan-Check (/ig-plan)** im Plan-Tab: bewertet den Wochenplan (mindestens 3 Reels pro Woche,
+Frequenz, Postzeiten, eigene Zahlen Reel gegen Carousel). „Übernehmen“ setzt die Empfehlung um
+(Reel-Fokus: Mo–Sa Reel, So Carousel), „In Reels umwandeln“ baut Carousel-Entwürfe an Reel-Tagen um.

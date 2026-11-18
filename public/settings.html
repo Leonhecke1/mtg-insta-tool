@@ -25,6 +25,18 @@
   button:disabled { opacity: .5; }
   ol { margin: 0; padding-left: 20px; color: #7A7263; font-size: 14px; line-height: 1.6; }
   .msg { font-size: 14px; color: #7A7263; margin-top: 8px; min-height: 1.2em; }
+  .sw { display: flex; align-items: center; gap: 10px; font-size: 15px; padding: 8px 0; }
+  .sw input { width: 22px; height: 22px; flex: none; }
+  .hint { color: #9A8F7A; font-size: 13px; }
+  .week { display: grid; gap: 6px; margin: 8px 0 12px; }
+  .wrow { display: grid; grid-template-columns: 34px 1fr 110px; gap: 8px; align-items: center; }
+  .wrow b { font-weight: 600; }
+  .wrow select, .wrow input, .grid2 input { font: inherit; font-size: 16px; width: 100%; padding: 9px 10px; border: 1px solid #D5CBB5; border-radius: 10px; background: #fff; min-width: 0; }
+  .wrow.none select { color: #9A8F7A; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 6px; }
+  .grid2 select { font: inherit; font-size: 15px; width: 100%; padding: 9px 10px; border: 1px solid #D5CBB5; border-radius: 10px; background: #fff; }
+  .grid2 label { font-size: 13px; color: #7A7263; display: grid; gap: 4px; }
+  .grid2 .full { grid-column: 1 / -1; }
   .rule { display: grid; grid-template-columns: 1fr 18px 1fr 44px; gap: 6px; align-items: center; margin-bottom: 6px; }
   .rule .arrow { color: #9A8F7A; text-align: center; }
   .rule input, #probe { font: inherit; font-size: 16px; width: 100%; padding: 10px; border: 1px solid #D5CBB5; border-radius: 10px; min-width: 0; }
@@ -36,6 +48,24 @@
 <body>
 <header class="top"><h1>Einstellungen</h1></header>
 <div class="wrap">
+  <div class="card" id="automatik">
+    <h2>Automatik & Wochenplan</h2>
+    <p>Gilt sofort nach dem Speichern, ohne Neustart.</p>
+    <label class="sw"><input type="checkbox" id="s_dailyDecks"> Entwürfe automatisch anlegen</label>
+    <div class="week" id="s_week"></div>
+    <div class="grid2">
+      <label>Tage im Voraus<input type="number" id="s_lookaheadDays" min="1" max="14"></label>
+      <label>Budget pro Deck (€)<input type="number" id="s_budgetMaxEur" min="20" max="5000"></label>
+      <label class="full">Eigener Archidekt-Name (eigene Decks zuerst)<input id="s_archidektOwnUsername" autocapitalize="off"></label>
+      <label class="full">Reel-Länge<select id="s_reelLength"><option value="short">Kurz, ca. 15 s (Hook, Commander, Schlüsselkarten, Preis)</option><option value="full">Ausführlich, ca. 24 s (alle 8 Szenen)</option></select></label>
+    </div>
+    <label class="sw"><input type="checkbox" id="s_story"> Story-Grafik nach jedem Post <span class="hint">(nicht klickbar, Repost selbst ist besser)</span></label>
+    <label class="sw"><input type="checkbox" id="s_autoHideSpam"> Spam-Kommentare automatisch ausblenden</label>
+    <label class="sw"><input type="checkbox" id="s_autoReply"> Antworten auf Kommentare automatisch freigeben <span class="hint">(nur mit KI-Key)</span></label>
+    <div class="btns" style="margin-top:12px"><button class="primary" id="saveAuto">Speichern</button></div>
+    <div class="msg" id="autoMsg"></div>
+  </div>
+
   <div class="card">
     <h2>Benachrichtigungen</h2>
     <p>Bei neuen Decks, wenn ein Post bald fällig und noch nicht freigegeben ist, bei neuen Kommentaren und wenn ein Post fehlschlägt.</p>
@@ -156,6 +186,48 @@ $("disable").onclick = async () => {
   $("msg").textContent = "Deaktiviert.";
   refresh();
 };
+
+// --- Automatik & Wochenplan ---
+const WEEK = [[1, "Mo"], [2, "Di"], [3, "Mi"], [4, "Do"], [5, "Fr"], [6, "Sa"], [0, "So"]];
+let appSettings = null;
+function renderAuto(s) {
+  appSettings = s;
+  $("s_dailyDecks").checked = s.dailyDecks;
+  $("s_story").checked = s.story;
+  $("s_autoHideSpam").checked = s.autoHideSpam;
+  $("s_autoReply").checked = s.autoReply;
+  $("s_lookaheadDays").value = s.lookaheadDays;
+  $("s_budgetMaxEur").value = s.budgetMaxEur;
+  $("s_archidektOwnUsername").value = s.archidektOwnUsername;
+  $("s_reelLength").value = s.reelLength;
+  $("s_week").innerHTML = WEEK.map(([d, n]) => {
+    const slot = s.schedule[d];
+    return `<div class="wrow ${slot.kind}" data-day="${d}"><b>${n}</b>
+      <select><option value="reel" ${slot.kind === "reel" ? "selected" : ""}>Reel</option>
+        <option value="carousel" ${slot.kind === "carousel" ? "selected" : ""}>Carousel</option>
+        <option value="none" ${slot.kind === "none" ? "selected" : ""}>nichts</option></select>
+      <input type="time" value="${slot.time}"></div>`;
+  }).join("");
+}
+$("s_week").addEventListener("change", (e) => {
+  const row = e.target.closest(".wrow");
+  if (row) row.className = "wrow " + row.querySelector("select").value;
+});
+$("saveAuto").onclick = async () => {
+  const schedule = [...appSettings.schedule];
+  document.querySelectorAll(".wrow").forEach((row) => {
+    schedule[+row.dataset.day] = { kind: row.querySelector("select").value, time: row.querySelector("input").value || "19:00" };
+  });
+  const body = {
+    dailyDecks: $("s_dailyDecks").checked, story: $("s_story").checked, autoHideSpam: $("s_autoHideSpam").checked,
+    autoReply: $("s_autoReply").checked, lookaheadDays: +$("s_lookaheadDays").value, budgetMaxEur: +$("s_budgetMaxEur").value,
+    archidektOwnUsername: $("s_archidektOwnUsername").value, reelLength: $("s_reelLength").value, schedule,
+  };
+  const r = await fetch("/api/settings/app", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (r.ok) { renderAuto(await r.json()); $("autoMsg").textContent = "Gespeichert. Neue Entwürfe folgen dem Plan."; }
+  else $("autoMsg").textContent = "Speichern fehlgeschlagen.";
+};
+fetch("/api/settings/app").then((r) => r.ok && r.json()).then((s) => s && renderAuto(s));
 
 // --- Aussprache-Regeln ---
 let defaults = [];

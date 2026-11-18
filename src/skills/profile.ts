@@ -11,6 +11,7 @@ import {
 } from "../instagram/client";
 import { humanize } from "./human";
 import rubricJson from "./lexicon/rubric.json";
+import { getSettings } from "../settings/appSettings";
 
 /**
  * Profil-Analyse nach /ig-profile (rubric.json aus dem "instagram-agent-skill"
@@ -221,7 +222,7 @@ export async function analyzeProfile(): Promise<ProfileAnalysis> {
   const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 
   // Vorschlaege (fix-first: Name-Feld, Bio, angepinnte Posts)
-  const budget = Math.round(config.dailyBudgetMaxEur);
+  const budget = Math.round(getSettings().budgetMaxEur);
   const nameField = ["floating.mana | EDH Decks", "Budget Commander Decks", "EDH Deck Techs | Daily"].filter((n) => n.length <= 30);
   const bio = humanize(
     `Budget Commander decks you can actually build.\nA new deck tech every day, all under €${budget}.\nFull decklists below.`
