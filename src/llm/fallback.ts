@@ -2,6 +2,7 @@ import { Deck, EnrichedCard, GeneratedTexts } from "../types";
 import { colorComboName } from "../render/theme";
 import { commanderDisplayName, formatEur } from "../render/components";
 import { isArtifactOrEnchantment, isCreature, isInstant, isLand, isSorcery, manaValue } from "../render/classify";
+import { findEngine } from "./engine";
 
 /**
  * Regelbasierte Deck-Texte ohne LLM (kostenlos). Liest Archetyp,
@@ -301,7 +302,8 @@ function keyCardObjs(deck: Deck, arch: Archetype | undefined, n: number): Enrich
 }
 
 function keyCards(deck: Deck, arch: Archetype | undefined, n: number): string[] {
-  return keyCardObjs(deck, arch, n).map((c) => c.name);
+  const engine = findEngine(deck, STAPLES, n, tribe(deck)?.name).map((p) => p.card.name);
+  return [...engine, ...keyCardObjs(deck, arch, n).map((c) => c.name).filter((x) => !engine.includes(x))].slice(0, n);
 }
 
 interface Stats {
@@ -355,7 +357,10 @@ export interface DeckAnalysis {
   ability: string | null;
   /** Alle relevanten Faehigkeiten des (ersten) Commanders */
   abilities: string[];
+  /** Engine-Karten: spielen nachweislich mit dem Commander zusammen (src/llm/engine.ts) */
   keyCards: EnrichedCard[];
+  /** Warum die Karte zur Engine gehoert, je Kartenname (Verbphrase ohne Namen) */
+  engineWhy: Record<string, string>;
   stats: Stats;
   priceEur: number;
   cardCount: number;
@@ -376,6 +381,7 @@ export function analyzeDeck(deck: Deck): DeckAnalysis {
   const fullName = commanderDisplayName(deck.commanders);
   const st = stats(deck);
   const short = deck.commanders.map((c) => shortName(c.name)).join(" & ") || fullName;
+  const engine = findEngine(deck, STAPLES, 3, tr?.name);
 
   const spells = nonLand(deck);
   const curve = new Array(8).fill(0);
@@ -401,7 +407,8 @@ export function analyzeDeck(deck: Deck): DeckAnalysis {
     finish: main?.finish ?? null,
     ability: deck.commanders[0] ? commanderAbility(deck.commanders[0]) : null,
     abilities: deck.commanders[0] ? commanderAbilities(deck.commanders[0]) : [],
-    keyCards: keyCardObjs(deck, main, 3),
+    keyCards: engine.map((p) => p.card),
+    engineWhy: Object.fromEntries(engine.map((p) => [p.card.name, p.why])),
     stats: st,
     priceEur: deck.totalPriceEur,
     cardCount: deck.cardCount,

@@ -257,6 +257,10 @@ PIPER_MODEL=/opt/piper/en_US-ryan-medium.onnx   # Voice: .onnx + .onnx.json im s
 
 Ohne Piper bleiben Reels stumm.
 
+Natürlichere Stimme: [Nari Labs Dia](https://github.com/nari-labs/dia) mit `TTS_ENGINE=dia`
+(Python-venv, ~8 GB RAM, auf CPU langsam). `scripts/dia_tts.py` spricht alle Szenen eines Reels
+mit derselben Stimme (`DIA_VOICE_PROMPT`). Schlägt Dia fehl, springt Piper ein. Setup: SERVER_TODO.md, Abschnitt 8b.
+
 ## Handy-App (iOS) und Benachrichtigungen
 
 - **Login:** Formular mit dauerhaftem Cookie statt Basic Auth. Basic Auth geht in iOS-Homescreen-Apps
@@ -346,6 +350,13 @@ zeigt nur offiziell gespoilerte Karten.
 Typ „Combo-Reel“ im Wochenplan oder unter „Eigenen Post einplanen“ (Spellbook-Link, leer = automatisch).
 Code: `src/combos/spellbook.ts` (API + Auswahl), `src/combos/comboDraft.ts` (Entwurf), `src/render/comboReel.ts` (Video).
 Der Sprechtext läuft wie bei Deck-Reels durch `src/skills/ttsText.ts` und die Aussprache-Regeln.
+
+Gilt für Deck- und Combo-Reels (gemeinsam in `src/render/reelStyle.ts`), ohne Textboxen. Look und Schnitt nach dem `/stick-figure`-Skill aus
+[claude-animation-skills](https://github.com/artemnovitckii/claude-animation-skills) (MIT), fest im Renderer
+eingebaut, damit es ohne Claude auf dem Server läuft: Wischübergänge mit Bewegungsunschärfe, Handkamera-Drift,
+Aufprall mit Strahlen, Wackeln und Blitz beim ×∞, Vignette und Körnung, Untertitel mit 1–2 Wörtern.
+Soundeffekte (Whoosh, Pop, Ticks, Riser, Aufprall) und eine gezupfte Untermalung entstehen im Code
+(`src/render/sound.ts`, keine Samples). Die Musik wird unter der Stimme per ffmpeg leiser gezogen.
 
 ### Combo-Vorrat
 

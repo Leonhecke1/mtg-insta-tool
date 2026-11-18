@@ -26,7 +26,7 @@ export function spawnFfmpeg(bin: string, args: string[]): { proc: ChildProcess; 
     proc.on("close", (code, signal) => {
       running.delete(proc);
       if (code === 0) return resolve();
-      reject(new Error(shuttingDown ? "Abgebrochen durch Neustart" : `ffmpeg exit ${code ?? signal}: ${stderr.slice(-800)}`));
+      reject(new Error(shuttingDown ? "Abgebrochen durch Neustart" : `${bin.split(/[\\/]/).pop()} exit ${code ?? signal}:${stderr.slice(-800)}`));
     });
   });
   done.catch(() => undefined); // wird vom Aufrufer trotzdem per await ausgewertet
