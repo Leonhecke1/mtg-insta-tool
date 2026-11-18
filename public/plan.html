@@ -23,6 +23,23 @@
   .auto .k { color: #7A7263; }
   .auto .v { text-align: right; }
   .off { color: #A23B2A; }
+  .auto h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+  .muted { color: #7A7263; font-size: 13px; font-weight: 400; }
+  .weekplan { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin: 8px 0; }
+  .wp { text-align: center; border-radius: 10px; padding: 6px 0; background: #F4EFE4; font-size: 11px; color: #7A7263; }
+  .wp b { display: block; font-size: 12px; color: #1F1D18; }
+  .wp small { font-size: 10px; }
+  .wp.reel { background: #DCE8F4; } .wp.carousel { background: #F3E9D2; } .wp.none { opacity: .55; }
+  .edit { display: inline-block; margin-top: 6px; font-size: 14px; color: #1F1D18; }
+  .chk { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid #F1EBDD; }
+  .chk:first-of-type { border-top: 0; }
+  .chk b { font-weight: 600; }
+  .chk .ic { flex: none; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; background: #EDE5D3; }
+  .chk.PASS .ic { background: #D5E8D0; color: #2F6B3A; } .chk.WARN .ic { background: #F6E3B4; color: #9A6B00; }
+  .chk.FAIL .ic { background: #F4D2CC; color: #A23B2A; } .chk.INFO .ic { background: #DCE8F4; color: #3D6A9A; }
+  .rec { margin-top: 10px; padding: 10px; background: #F4EFE4; border-radius: 12px; font-size: 14px; }
+  .rec button { display: block; margin-top: 8px; font: inherit; font-size: 15px; min-height: 42px; padding: 8px 14px; border-radius: 12px; border: 0; background: #1F1D18; color: #F4EFE4; }
+  .rec.ok { color: #2F6B3A; }
 
   .cal { background: #fff; border: 1px solid #E2D9C6; border-radius: 16px; padding: 10px; margin-bottom: 16px; }
   .cal .head, .cal .wk { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
@@ -59,6 +76,7 @@
 <header class="top"><h1>Plan</h1><div class="sub">Die nächsten 4 Wochen</div></header>
 <div class="wrap">
   <div class="auto" id="auto">Lade …</div>
+  <div class="auto" id="check"><h2>Plan-Check</h2><div class="muted">Prüfe …</div></div>
   <div class="cal" id="cal"></div>
   <div id="days"></div>
 </div>
@@ -80,20 +98,46 @@ async function api(method, url, body) {
 }
 
 function renderAuto(info) {
-  const reel = info.reelDays.length ? info.reelDays.map((d) => DAYNAMES[d]).join(", ") : "keine";
-  document.getElementById("auto").innerHTML = info.dailyDecks
-    ? `<div class="row"><span class="k">Automatische Decks</span><span class="v"><b>an</b></span></div>
-       <div class="row"><span class="k">Wann</span><span class="v">jeden Tag um ${info.postHour}:00, immer ${info.lookaheadDays} Tage im Voraus (stündlich geprüft)</span></div>
-       <div class="row"><span class="k">Reel statt Carousel</span><span class="v">${esc(reel)}</span></div>
-       <div class="row"><span class="k">Story</span><span class="v">${info.story ? "1 Stunde nach dem Post" : "aus"}</span></div>
-       <div class="row"><span class="k">Budget</span><span class="v">bis ${info.budgetMaxEur} €</span></div>
-       <div class="row"><span class="k">Instagram</span><span class="v">${info.instagram ? "verbunden" : '<span class="off">nicht verbunden</span>'}</span></div>`
-    : `<div class="row"><span class="k">Automatische Decks</span><span class="v off"><b>aus</b></span></div>
-       <div class="row"><span class="k">Einschalten</span><span class="v">DAILY_DECKS=true in der .env</span></div>`;
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  const kindLabel = { reel: "Reel", carousel: "Carousel", none: "–" };
+  document.getElementById("auto").innerHTML = `
+    <div class="row"><span class="k">Automatische Entwürfe</span><span class="v">${info.dailyDecks ? "<b>an</b>, " + info.lookaheadDays + " Tage im Voraus" : '<span class="off"><b>aus</b></span>'}</span></div>
+    <div class="weekplan">${order.map((d) => `<div class="wp ${info.schedule[d].kind}"><span>${DAYNAMES[d]}</span><b>${kindLabel[info.schedule[d].kind]}</b><small>${info.schedule[d].kind === "none" ? "" : info.schedule[d].time}</small></div>`).join("")}</div>
+    <div class="row"><span class="k">Instagram</span><span class="v">${info.instagram ? "verbunden" : '<span class="off">nicht verbunden</span>'}</span></div>
+    <a class="edit" href="/settings.html#automatik">Wochenplan bearbeiten →</a>`;
 }
+
+// --- Plan-Check (/ig-plan) ---
+async function loadCheck() {
+  const box = document.getElementById("check");
+  try {
+    const c = await api("GET", "/api/plan/check");
+    const icon = { PASS: "✓", WARN: "!", FAIL: "✕", INFO: "i" };
+    box.innerHTML = `<h2>Plan-Check <span class="muted">nach /ig-plan</span></h2>
+      ${c.checks.map((x) => `<div class="chk ${x.status}"><span class="ic">${icon[x.status]}</span><div><b>${esc(x.title)}</b><div class="muted">${esc(x.detail)}</div></div></div>`).join("")}
+      ${c.evidence ? `<div class="muted" style="margin-top:8px">Deine letzten Posts: ${c.evidence.map((e) => `${e.type} Ø ${e.avgEngagement} Interaktionen (${e.posts})`).join(" · ")}</div>` : ""}
+      ${c.changes.length ? `<div class="rec"><b>Empfehlung:</b> ${esc(c.changes.join(", "))}<button id="applyRec">Übernehmen</button></div>` : '<div class="rec ok">Dein Plan entspricht der Empfehlung.</div>'}
+      ${c.draftsToConvert ? `<div class="rec"><b>${c.draftsToConvert} Carousel-Entwurf/-Entwürfe</b> liegen an Reel-Tagen.<button id="convert">In Reels umwandeln</button></div>` : ""}`;
+  } catch (err) {
+    box.innerHTML = `<h2>Plan-Check</h2><div class="err">${esc(err.message)}</div>`;
+  }
+}
+document.addEventListener("click", async (e) => {
+  if (e.target.id === "applyRec") {
+    e.target.disabled = true;
+    await api("POST", "/api/plan/apply");
+    load(); loadCheck();
+  }
+  if (e.target.id === "convert") {
+    e.target.disabled = true; e.target.textContent = "Läuft im Hintergrund …";
+    await api("POST", "/api/plan/convert-drafts");
+    if (window.trackTasks) window.trackTasks();
+  }
+});
 
 async function load() {
   const [info, items] = await Promise.all([api("GET", "/api/plan/info"), api("GET", "/api/queue")]);
+  info.reelDays = info.schedule.map((x, i) => (x.kind === "reel" ? i : -1)).filter((i) => i >= 0);
   renderAuto(info);
 
   const posts = items.filter((i) => i.kind !== "comment_reply" && i.status !== "rejected");
@@ -158,9 +202,10 @@ document.getElementById("days").addEventListener("click", async (e) => {
     btn.closest(".day").querySelector(".err").textContent = err.message;
   }
 });
-window.addEventListener("tasks-done", () => load());
+window.addEventListener("tasks-done", () => { load(); loadCheck(); });
 
 load();
+loadCheck();
 setInterval(() => { if (!document.hidden) load(); }, 60000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
 </script>

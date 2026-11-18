@@ -292,3 +292,51 @@ Ohne Piper bleiben Reels stumm.
 Hintergrund-Auftrag. Die Anfrage kommt sofort zurück (HTTP 202 mit `taskId`). Über der Tab-Leiste
 zeigt jede Seite Schritt und Fortschrittsbalken (`GET /api/tasks`). Seitenwechsel oder das Schließen
 der App brechen nichts ab. Fertige und fehlgeschlagene Aufträge melden sich zusätzlich per Push.
+
+## Regeln aus dem Instagram-Plugin (kostenlos, ohne Claude)
+
+Übernommen aus [instagram-agent-skill](https://github.com/Jakeschincariol/instagram-agent-skill)
+(MIT, © Jake Schincariol). Lizenz in `src/skills/lexicon/LICENSE-instagram-agent-skill`.
+
+- **/ig-caption** (`src/skills/igCaption.ts`, `src/skills/caption.ts`): Captions mit Hook in den
+  ersten 125 Zeichen, kurzen Absätzen mit Suchbegriffen, genau einer Aufforderung und höchstens
+  5 Hashtags. Der Archidekt-Link steht nicht in der Caption, er wird nach dem Veröffentlichen als
+  erster Kommentar gepostet. Die Freigabe zeigt die Feed-Vorschau und das Linter-Ergebnis live.
+- **/ig-human** (`src/skills/human.ts`, Daten `slop.json`): entfernt unsichtbare Zeichen,
+  Gedankenstriche und KI-Floskeln und meldet typische KI-Satzmuster. Kartennamen und MTG-Begriffe
+  (z. B. „synergy“, „unleash“) bleiben geschützt. Automatisch auf jede neue Caption angewendet,
+  manuell über „Text säubern“.
+- **/ig-profile** (`src/skills/profile.ts`, Daten `rubric.json`): Tab „Profil“ bewertet das Profil
+  mit 100 Punkten. Name-Feld, Bio, Link, Handle, Aktivität und Stories werden automatisch über die
+  API bewertet. Angepinnte Posts, Highlights, Grid, Profilbild und Kategorie schätzt du einmal selbst
+  ein, weil die API diese Felder nicht liefert. Dazu gibt es Vorschläge zum Kopieren und
+  Kandidaten zum Anpinnen.
+
+Reels halten Instagrams sichere Zone ein (oben ~210 px, unten ~480 px, rechts die Buttons frei).
+
+## Einstellungen in der App
+
+Unter **Einstellungen → Automatik & Wochenplan**: Für jeden Wochentag Reel, Carousel oder nichts samt
+Uhrzeit, Vorlauf in Tagen, Budget, eigener Archidekt-Name, Story-Grafik an/aus, Reel-Länge,
+Spam-Filter und Auto-Antworten. Gespeichert in `DATA_DIR/app-settings.json` und sofort wirksam.
+Die `DAILY_*`-Werte aus der `.env` gelten nur bis zum ersten Speichern.
+
+**Plan-Check (/ig-plan)** im Plan-Tab: bewertet den Wochenplan (mindestens 3 Reels pro Woche,
+Frequenz, Postzeiten, eigene Zahlen Reel gegen Carousel). „Übernehmen“ setzt die Empfehlung um
+(Reel-Fokus: Mo–Sa Reel, So Carousel), „In Reels umwandeln“ baut Carousel-Entwürfe an Reel-Tagen um.
+
+## News
+
+Tab **News**: offizielle MTG-News von Scryfall, alle 6 Stunden abgerufen (einstellbar unter
+Optionen → News) oder per „Jetzt nach News suchen“.
+
+- **Spoiler:** Neue Karten aus kommenden oder gerade erschienenen Sets und aus Secret Lair Drops
+  der letzten 30 Tage. Ab 3 neuen Karten eines Sets (einstellbar, spätestens nach 24 h) entsteht
+  automatisch ein **Spoiler-Carousel**: Cover mit Spoiler-Warnung, danach die Karten.
+- **Bann- und Game-Changer-Änderungen** für Commander werden automatisch zum Einzelbild-Entwurf.
+- **Neue Commander** erscheinen zusätzlich einzeln im Feed.
+- **Eigene News:** Kartennamen (eine pro Zeile) oder eine Scryfall-Suche (`set:nau`) eingeben, dann
+  wird daraus ein Spoiler-Carousel, ein Einzelbild oder eine Story.
+
+News-Entwürfe kommen **zusätzlich** zum Wochenplan und blockieren keinen Tag. Keine Leaks: Scryfall
+zeigt nur offiziell gespoilerte Karten.

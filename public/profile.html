@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#F4EFE4" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="floating.mana" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<title>Profil · floating.mana</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  header.top { position: sticky; top: 0; z-index: 10; background: #F4EFE4; padding: calc(10px + env(safe-area-inset-top)) 16px 10px; border-bottom: 1px solid #E2D9C6; }
+  header.top h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  header.top .sub { font-size: 13px; color: #7A7263; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 12px 16px 24px; }
+  .card { background: #fff; border: 1px solid #E2D9C6; border-radius: 16px; padding: 14px; margin-bottom: 12px; }
+  .card h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+  .muted { color: #7A7263; font-size: 13px; }
+  .head { display: flex; gap: 14px; align-items: center; }
+  .head img { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; background: #EDE5D3; flex: none; }
+  .head .n { font-weight: 700; font-size: 16px; }
+  .head .bio { white-space: pre-line; font-size: 14px; margin-top: 4px; }
+  .score { display: flex; align-items: baseline; gap: 10px; }
+  .score b { font-size: 48px; font-weight: 900; line-height: 1; }
+  .meter { height: 10px; border-radius: 5px; background: #EDE5D3; overflow: hidden; margin-top: 8px; }
+  .meter i { display: block; height: 100%; background: #6BA368; }
+  .row { padding: 10px 0; border-top: 1px solid #F1EBDD; }
+  .row:first-of-type { border-top: 0; }
+  .row .t { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; font-weight: 600; }
+  .row .p { flex: none; font-variant-numeric: tabular-nums; }
+  .row .p.low { color: #A23B2A; } .row .p.mid { color: #9A6B00; } .row .p.ok { color: #2F6B3A; }
+  .row .d { font-size: 13px; color: #5c5446; margin-top: 3px; }
+  .row details { margin-top: 4px; font-size: 13px; color: #7A7263; }
+  .row select { font: inherit; font-size: 16px; width: 100%; margin-top: 6px; padding: 10px; border: 1px solid #D5CBB5; border-radius: 10px; background: #fff; }
+  .tag { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: #EDE5D3; color: #7A7263; margin-left: 6px; vertical-align: middle; }
+  .copy { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+  .copy code { flex: 1; min-width: 0; white-space: pre-line; background: #F4EFE4; padding: 8px 10px; border-radius: 10px; font-family: inherit; font-size: 14px; overflow-wrap: anywhere; }
+  .copy button { flex: none; font: inherit; font-size: 14px; min-height: 40px; padding: 6px 12px; border-radius: 10px; border: 1px solid #1F1D18; background: #fff; }
+  .pins { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 6px; }
+  .pins a { text-decoration: none; color: inherit; font-size: 12px; }
+  .pins img { width: 100%; aspect-ratio: 4/5; object-fit: cover; border-radius: 10px; background: #EDE5D3; display: block; }
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stat { background: #F4EFE4; border-radius: 12px; padding: 10px; }
+  .stat b { display: block; font-size: 22px; font-weight: 800; }
+  .err { color: #A23B2A; }
+</style>
+</head>
+<body>
+<header class="top"><h1>Profil</h1><div class="sub">Analyse nach /ig-profile (12 Punkte, 100 gesamt)</div></header>
+<div class="wrap" id="root"><div class="card muted">Lade Profil von Instagram …</div></div>
+<script src="/nav.js"></script>
+<script>
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401) { location.href = "/login.html?next=/profile.html"; throw new Error("login"); }
+  if (!r.ok) throw new Error(data.error || r.status);
+  return data;
+}
+
+function copyBox(text) {
+  return `<div class="copy"><code>${esc(text)}</code><button type="button" data-copy="${esc(text)}">Kopieren</button></div>`;
+}
+
+function render(a) {
+  const p = a.profile;
+  const pct = Math.round((a.total / 100) * 100);
+  const missing = a.scores.filter((s) => s.points === null).length;
+  // Fix-first: groesster Punktverlust zuerst
+  const lost = [...a.scores].filter((s) => s.points !== null).sort((x, y) => (y.max - y.points) - (x.max - x.points));
+
+  document.getElementById("root").innerHTML = `
+    <div class="card">
+      <div class="head">
+        ${p.profile_picture_url ? `<img src="${esc(p.profile_picture_url)}" alt="">` : `<img alt="">`}
+        <div><div class="n">${esc(p.name || p.username)} <span class="muted">@${esc(p.username)}</span></div>
+          <div class="bio">${esc(p.biography || "")}</div>
+          ${p.website ? `<div class="muted">${esc(p.website)}</div>` : ""}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="score"><b>${a.total}</b><span>/ 100 Punkte</span></div>
+      <div class="meter"><i style="width:${pct}%"></i></div>
+      <div class="muted" style="margin-top:6px">${missing ? `${missing} Punkt(e) noch nicht eingeschätzt, siehe unten.` : "Vollständig bewertet."} Die meisten Profile landen beim ersten Durchgang bei 30–50.</div>
+    </div>
+
+    <div class="card">
+      <h2>Bewertung</h2>
+      ${a.scores.map((s) => {
+        const cls = s.points === null ? "" : s.points / s.max < 0.5 ? "low" : s.points / s.max < 0.85 ? "mid" : "ok";
+        const opts = a.manualOptions[s.id];
+        return `<div class="row">
+          <div class="t"><span>${esc(s.label)}<span class="tag">${s.auto ? "automatisch" : "selbst einschätzen"}</span></span>
+            <span class="p ${cls}">${s.points === null ? "–" : s.points} / ${s.max}</span></div>
+          <div class="d">${esc(s.detail)}</div>
+          ${opts ? `<select data-answer="${s.id}"><option value="">Bitte wählen …</option>${opts.map((o) => `<option value="${o.points}" ${o.points === s.points ? "selected" : ""}>${esc(o.label)} (${o.points})</option>`).join("")}</select>` : ""}
+          <details><summary>Volle Punktzahl, wenn …</summary>${esc(s.fullMarks)}</details>
+        </div>`;
+      }).join("")}
+    </div>
+
+    <div class="card">
+      <h2>Zuerst verbessern</h2>
+      <div class="muted">Sortiert nach verlorenen Punkten.</div>
+      ${lost.slice(0, 3).map((s) => `<div class="row"><div class="t"><span>${esc(s.label)}</span><span class="p low">−${s.max - s.points}</span></div><div class="d">${esc(s.fullMarks)}</div></div>`).join("")}
+    </div>
+
+    <div class="card">
+      <h2>Vorschläge zum Kopieren</h2>
+      <div class="muted">Name-Feld (fett, max. 30 Zeichen, wird von der Instagram-Suche gelesen):</div>
+      ${a.suggestions.nameField.map(copyBox).join("")}
+      <div class="muted" style="margin-top:12px">Bio (max. 150 Zeichen):</div>
+      ${copyBox(a.suggestions.bio)}
+      <div class="muted" style="margin-top:12px">Zum Anpinnen: deine stärksten Posts der letzten Wochen</div>
+      <div class="pins">${a.suggestions.pinned.map((m) => `<a href="${esc(m.permalink)}" target="_blank" rel="noopener">
+        <img src="${esc(m.thumbnail_url || m.media_url || "")}" alt="" loading="lazy">♥ ${m.like_count ?? 0} · 💬 ${m.comments_count ?? 0}</a>`).join("")}</div>
+    </div>
+
+    <div class="card">
+      <h2>Zahlen</h2>
+      <div class="stats">
+        <div class="stat"><b>${a.stats.followers}</b>Follower</div>
+        <div class="stat"><b>${a.stats.posts30d}</b>Posts in 30 Tagen</div>
+        <div class="stat"><b>${a.stats.avgLikes}</b>Ø Likes</div>
+        <div class="stat"><b>${a.stats.avgComments}</b>Ø Kommentare</div>
+      </div>
+      <div class="muted" style="margin-top:10px">${a.stats.byType.map((t) => `${t.type}: ${t.posts} Posts, Ø ${t.avgEngagement} Interaktionen`).join(" · ")}</div>
+    </div>`;
+}
+
+async function load() {
+  try { render(await api("GET", "/api/profile/analysis")); }
+  catch (err) { document.getElementById("root").innerHTML = `<div class="card err">${esc(err.message)}</div>`; }
+}
+
+document.getElementById("root").addEventListener("change", async (e) => {
+  const id = e.target.dataset.answer;
+  if (!id || e.target.value === "") return;
+  const answers = {};
+  document.querySelectorAll("select[data-answer]").forEach((s) => { if (s.value !== "") answers[s.dataset.answer] = +s.value; });
+  await api("PUT", "/api/profile/answers", answers);
+  load();
+});
+document.getElementById("root").addEventListener("click", async (e) => {
+  const t = e.target.dataset && e.target.dataset.copy;
+  if (!t) return;
+  try { await navigator.clipboard.writeText(t); e.target.textContent = "Kopiert"; } catch { e.target.textContent = "Nicht möglich"; }
+  setTimeout(() => (e.target.textContent = "Kopieren"), 1500);
+});
+load();
+</script>
+</body>
+</html>

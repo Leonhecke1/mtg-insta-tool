@@ -70,6 +70,17 @@
   .thumbs .n { flex: none; align-self: center; font-size: 12px; color: var(--muted); padding: 0 4px; }
 
   .quote { background: var(--bg); padding: 10px 12px; border-radius: 10px; margin-bottom: 10px; font-size: 15px; }
+  .lint { margin-top: 8px; font-size: 14px; }
+  .lint .feed { background: #fff; border: 1px dashed #D5CBB5; border-radius: 10px; padding: 8px 10px; white-space: pre-line; line-height: 1.35; }
+  .lint .feedlabel { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
+  .lint .more { color: var(--muted); margin-left: 4px; }
+  .lint .verdict { margin-top: 6px; }
+  .lint .verdict.ok b { color: #2F6B3A; } .lint .verdict.warn b { color: #9A6B00; } .lint .verdict.bad b { color: #A23B2A; }
+  .lint .issue { font-size: 13px; margin-top: 3px; padding-left: 10px; border-left: 3px solid #E9B949; color: #5c5446; }
+  .lint .issue.bad { border-color: #A23B2A; }
+  .fc { margin-top: 8px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .fc b { color: var(--ink); font-weight: 600; }
+  button.tiny { min-height: 36px; font-size: 14px; padding: 6px 12px; margin-top: 8px; }
   .field { margin-top: 8px; }
   .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
 
@@ -216,6 +227,9 @@ function render(it) {
     ${preview(it)}
     ${isReply ? `<div class="quote"><b>@${esc(it.commentUsername)}:</b> ${esc(it.commentText)}</div>` : ""}
     ${it.kind === "story" ? "" : `<div class="field"><label>${isReply ? "Antwort" : "Caption"}</label><textarea ${editable ? "" : "disabled"}>${esc(isReply ? it.replyText : it.caption)}</textarea></div>`}
+    ${it.kind === "story" ? "" : `<div class="lint" data-lint></div>`}
+    ${it.firstComment ? `<div class="fc"><b>Erster Kommentar:</b> ${esc(it.firstComment)}</div>` : ""}
+    ${editable && it.kind !== "story" ? `<button class="ghost tiny" data-a="humanize" type="button">Text säubern (ig-human)</button>` : ""}
     ${!isReply && editable ? `<div class="field"><label>Zeitpunkt</label><input type="datetime-local" value="${toLocal(it.scheduledAt)}"></div>` : ""}
     ${it.error ? `<div class="err">${esc(it.error)}</div>` : ""}
     ${editable ? `<div class="btns">
@@ -225,11 +239,34 @@ function render(it) {
       <button class="ghost" data-a="reject">Ablehnen</button>
     </div>` : ""}`;
 
-  el.addEventListener("input", () => { dirty = true; });
+  // /ig-caption-Pruefung: anzeigen und beim Tippen live aktualisieren
+  const lintBox = el.querySelector("[data-lint]");
+  if (lintBox && !isReply) renderLint(lintBox, it.lint);
+  let lintTimer;
+  el.addEventListener("input", (e) => {
+    dirty = true;
+    if (!lintBox || isReply || e.target.tagName !== "TEXTAREA") return;
+    clearTimeout(lintTimer);
+    lintTimer = setTimeout(async () => {
+      try { renderLint(lintBox, await api("POST", "/api/lint/caption", { text: e.target.value, keywords: it.keywords || [] })); } catch {}
+    }, 400);
+  });
   el.addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-a]");
     if (!btn) return;
     const a = btn.dataset.a;
+    if (a === "humanize") {
+      const ta = el.querySelector("textarea");
+      if (!ta) return;
+      const r = await api("POST", "/api/humanize", { text: ta.value, itemId: it.id });
+      const n = r.changes.reduce((s, c) => s + c.count, 0);
+      ta.value = r.text;
+      dirty = true;
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      btn.textContent = n ? `${n} Änderung(en), bitte speichern` : "Nichts zu säubern";
+      if (r.structures.length) alertBox(el, "Selbst umschreiben: " + r.structures.map((s) => `„${s.match}“ (${s.fix})`).join(" "));
+      return;
+    }
     // "Jetzt posten" braucht einen zweiten Tipp, damit nichts aus Versehen rausgeht
     if (a === "now" && !btn.dataset.armed) {
       btn.dataset.armed = "1";
@@ -263,6 +300,17 @@ function render(it) {
     }
   });
   return el;
+}
+
+const VERDICT = { READY: ["Bereit", "ok"], REVIEW: ["Prüfen", "warn"], FIX: ["Korrigieren", "bad"] };
+function renderLint(box, lint) {
+  if (!lint) { box.innerHTML = ""; return; }
+  const [label, cls] = VERDICT[lint.verdict];
+  const issues = lint.checks.filter((c) => c.status !== "PASS");
+  box.innerHTML = `
+    <div class="feed"><span class="feedlabel">So zeigt es der Feed</span>${esc(lint.visible)}${lint.truncated ? '<span class="more">… mehr</span>' : ""}</div>
+    <div class="verdict ${cls}">Caption-Check: <b>${label}</b>${issues.length ? "" : " · alles erfüllt"}</div>
+    ${issues.map((c) => `<div class="issue ${c.status === "FAIL" ? "bad" : "warn"}">${esc(c.check)}: ${esc(c.detail)}</div>`).join("")}`;
 }
 
 function alertBox(el, msg) {

@@ -16,9 +16,17 @@ import {
   QueueKind,
   updateItem,
 } from "./queue/queueStore";
-import { mediaUrls, runSchedulerNow, startScheduler } from "./queue/scheduler";
+import { mediaUrls, runDailyNow, runSchedulerNow, startScheduler } from "./queue/scheduler";
 import { fetchNextDeck, planInfo } from "./sourcing/dailyDeck";
 import { getTask, listTasks, startTask } from "./tasks/tasks";
+import { creditFromText, igCaption } from "./skills/igCaption";
+import { lintCaption } from "./skills/caption";
+import { humanize } from "./skills/human";
+import { analyzeProfile, saveAnswers } from "./skills/profile";
+import { carouselDraftsOnReelDays, checkPlan } from "./skills/plan";
+import { getSettings, saveSettings } from "./settings/appSettings";
+import { customNews, getNews, listNews, markDrafted, NewsItem, pollNews, setAutoDrafter } from "./news/news";
+import { newsCaption, renderNewsGraphic, renderSpoilerCarousel } from "./render/news";
 import { applyPronunciation, DEFAULT_RULES, getRules, saveRules } from "./settings/pronunciation";
 import * as fs from "fs";
 import { authEnabled, handleLogin, handleLogout, requireAuth } from "./auth";
@@ -231,8 +239,29 @@ function toQueueSummary(item: QueueItem) {
       (f, i) => `/media/${item.mediaToken}/${i}${path.extname(f)}`
     ),
     publicUrls: config.publicBaseUrl ? mediaUrls(item) : [],
+    // /ig-caption-Pruefung fuer die Anzeige in der Freigabe
+    lint: item.caption && item.kind !== "comment_reply" ? lintCaption(item.caption, item.keywords) : undefined,
   };
 }
+
+/** Kartennamen eines Queue-Eintrags (fuer den Humanizer-Schutz) */
+function cardNamesFor(itemId?: string): string[] {
+  const item = itemId ? getItem(itemId) : undefined;
+  const deck = item?.sourceJobId ? getJob(item.sourceJobId)?.result?.deck : undefined;
+  return deck ? [...deck.commanders, ...deck.mainboard].map((c) => c.name) : [];
+}
+
+app.post("/api/lint/caption", (req, res) => {
+  const text = String(req.body?.text ?? "");
+  const keywords = Array.isArray(req.body?.keywords) ? req.body.keywords.map(String) : [];
+  res.json(lintCaption(text, keywords));
+});
+
+/** /ig-human auf einen Text anwenden (Kartennamen des Eintrags bleiben unangetastet) */
+app.post("/api/humanize", (req, res) => {
+  const text = String(req.body?.text ?? "").slice(0, 5000);
+  res.json(humanize(text, cardNamesFor(req.body?.itemId)));
+});
 
 function validateForApproval(item: QueueItem): string | null {
   if (item.kind === "comment_reply") {
@@ -282,6 +311,7 @@ app.post("/api/queue", async (req, res) => {
       let mediaFiles: string[] = [];
       let caption: string | undefined = body.caption;
       let label = body.label as string | undefined;
+      let ig: ReturnType<typeof igCaption> | undefined;
 
       if (kind === "reel" && result) {
         // Animiertes Reel aus dem Deck (eigene Szenen, kein Slide-Zoom)
@@ -290,7 +320,8 @@ app.post("/api/queue", async (req, res) => {
         const hook = reelScript(result.deck, hookIn).hook;
         const cover = reelCoverPath(video);
         mediaFiles = fs.existsSync(cover) ? [video, cover] : [video];
-        caption = caption ?? result.caption;
+        ig = igCaption(result.deck, { kind: "reel", archidektUrl: job?.input.archidektUrl, creditUser: creditFromText(result.texts.caption.body) });
+        caption = caption ?? ig.caption;
         label = label ?? `${result.deckSummary?.commander ?? ""} · "${hook}"`;
       } else if (kind === "reel" && videoFile) {
         mediaFiles = [videoFile];
@@ -302,7 +333,8 @@ app.post("/api/queue", async (req, res) => {
         }
         if (kind !== "carousel") pngs = pngs.slice(0, 1);
         mediaFiles = await ensureJpegs(pngs);
-        caption = caption ?? result.caption;
+        ig = igCaption(result.deck, { kind: kind === "carousel" ? "carousel" : "image", archidektUrl: job?.input.archidektUrl, creditUser: creditFromText(result.texts.caption.body) });
+        caption = caption ?? ig.caption;
         label = label ?? result.deckSummary?.commander;
       }
 
@@ -315,6 +347,8 @@ app.post("/api/queue", async (req, res) => {
         mediaToken: nanoid(24),
         mediaFiles,
         caption: kind === "story" ? undefined : caption,
+        firstComment: kind === "story" ? undefined : ig?.firstComment ?? undefined,
+        keywords: ig?.keywords,
         sourceJobId: body.jobId,
         label,
       };
@@ -370,8 +404,155 @@ app.post("/api/settings/pronunciation/preview", (req, res) => {
   res.json({ spoken: applyPronunciation(text, rules) });
 });
 
+// --- Profil-Analyse (/ig-profile) ---
+app.get("/api/profile/analysis", async (_req, res) => {
+  if (!instagramConfigured()) return res.status(400).json({ error: "Instagram ist nicht verbunden" });
+  try {
+    res.json(await analyzeProfile());
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+app.put("/api/profile/answers", (req, res) => {
+  res.json(saveAnswers(req.body ?? {}));
+});
+
 app.get("/api/plan/info", (_req, res) => {
   res.json({ ...planInfo(), instagram: instagramConfigured() });
+});
+
+// --- MTG-News ---
+app.get("/api/news", (_req, res) => {
+  const { items, lastPoll } = listNews();
+  res.json({ items: items.slice(0, 150), lastPoll });
+});
+app.post("/api/news/refresh", (_req, res) => {
+  const task = startTask("News abrufen", async (report) => {
+    report("Frage Scryfall und Feeds ab", null as unknown as number);
+    return { fresh: await pollNews() };
+  });
+  res.status(202).json({ taskId: task.id });
+});
+/** Aus einer Meldung einen Entwurf machen (Feed-Bild oder Story) */
+type NewsFormat = "auto" | "post" | "story";
+
+/**
+ * Entwurf aus einer Meldung: Spoiler-Pakete werden ein Carousel (Cover mit
+ * Spoiler-Warnung), alles andere ein Einzelbild oder eine Story. News-Entwuerfe
+ * sind zusaetzlich (origin "news") und blockieren keinen Tag im Wochenplan.
+ */
+async function draftNewsItem(item: NewsItem, format: NewsFormat, report: (s: string, p?: number) => void = () => undefined) {
+  // in 2 Stunden (volle Stunde), damit Zeit zum Freigeben bleibt; "Jetzt posten" geht immer
+  const when = new Date(Date.now() + 2 * 3600_000);
+  when.setMinutes(0, 0, 0);
+  const asCarousel = format === "auto" ? item.type === "spoiler" && (item.cards?.length ?? 0) > 0 : false;
+  report("Erzeuge Grafik", 0.3);
+  const files = asCarousel
+    ? await renderSpoilerCarousel(item)
+    : [await renderNewsGraphic(item, format === "story" ? "story" : "post")];
+  const cap = format === "story" ? null : newsCaption(item);
+  addItem({
+    id: nanoid(10),
+    kind: format === "story" ? "story" : files.length > 1 ? "carousel" : "image",
+    status: "draft",
+    origin: "news",
+    createdAt: new Date().toISOString(),
+    scheduledAt: when.toISOString(),
+    mediaToken: nanoid(24),
+    mediaFiles: files,
+    caption: cap?.caption,
+    firstComment: cap?.firstComment,
+    keywords: cap?.keywords,
+    label: item.title,
+  });
+  markDrafted(item.id);
+  return { label: item.title };
+}
+// Automatische Entwuerfe nach dem News-Abruf
+setAutoDrafter((item) => draftNewsItem(item, "auto").then((r) => notify({ title: "News-Entwurf", body: `${r.label} wartet auf Freigabe.`, tag: `news-${item.id}` })));
+
+app.post("/api/news/:id/draft", (req, res) => {
+  const item = getNews(req.params.id);
+  if (!item) return res.status(404).json({ error: "not found" });
+  const format: NewsFormat = ["auto", "post", "story"].includes(req.body?.format) ? req.body.format : "auto";
+  const task = startTask(`News: ${item.cardName ?? item.title}`, (report) => draftNewsItem(item, format, report), {
+    notifyOnDone: (r) => `${r.label} wartet auf Freigabe.`,
+  });
+  res.status(202).json({ taskId: task.id });
+});
+
+/**
+ * Eigene News: Kartennamen (eine pro Zeile) oder eine Scryfall-Suche ("set:nau",
+ * "e:sld date>=2026-11-01") -> Spoiler-Carousel, Einzelbild oder Story.
+ */
+app.post("/api/news/custom", (req, res) => {
+  const input = String(req.body?.cards ?? "").trim();
+  const title = String(req.body?.title ?? "").trim().slice(0, 120);
+  const format: NewsFormat = ["auto", "post", "story"].includes(req.body?.format) ? req.body.format : "auto";
+  if (!input) return res.status(400).json({ error: "Bitte Kartennamen oder eine Scryfall-Suche angeben" });
+  const task = startTask(`Eigene News${title ? `: ${title}` : ""}`, async (report) => {
+    report("Suche Karten auf Scryfall", 0.1);
+    const item = await customNews(input, title);
+    return draftNewsItem(item, format, report);
+  }, { notifyOnDone: (r) => `${r.label} wartet auf Freigabe.` });
+  res.status(202).json({ taskId: task.id });
+});
+
+// --- Einstellungen aus der App (Automatik, Wochenplan ...) ---
+app.get("/api/settings/app", (_req, res) => {
+  res.json(getSettings());
+});
+app.put("/api/settings/app", (req, res) => {
+  const saved = saveSettings(req.body ?? {});
+  runDailyNow(); // sofort nach dem neuen Plan Entwuerfe anlegen
+  res.json(saved);
+});
+
+// --- Plan-Check (/ig-plan) ---
+app.get("/api/plan/check", async (_req, res) => {
+  try {
+    res.json(await checkPlan());
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+app.post("/api/plan/apply", async (_req, res) => {
+  const { recommended } = await checkPlan();
+  const saved = saveSettings(recommended);
+  runDailyNow();
+  res.json(saved);
+});
+/** Carousel-Entwuerfe an Reel-Tagen in Reels umwandeln (Hintergrund-Auftrag) */
+app.post("/api/plan/convert-drafts", (_req, res) => {
+  const drafts = carouselDraftsOnReelDays();
+  if (!drafts.length) return res.json({ converted: 0 });
+  const task = startTask(`${drafts.length} Carousel(s) → Reel`, async (report) => {
+    let done = 0;
+    for (const [i, item] of drafts.entries()) {
+      const r = getJob(item.sourceJobId!)?.result;
+      if (!r) continue;
+      const video = await buildReel(r.deck, r.jobDir, {
+        onProgress: (step, p) => report(`${item.label}: ${step}`, (i + (p ?? 0)) / drafts.length),
+      });
+      const cover = reelCoverPath(video);
+      const ig = igCaption(r.deck, { kind: "reel", archidektUrl: getJob(item.sourceJobId!)?.input.archidektUrl, creditUser: creditFromText(r.texts.caption.body) });
+      addItem({
+        ...item,
+        id: nanoid(10),
+        kind: "reel",
+        createdAt: new Date().toISOString(),
+        mediaToken: nanoid(24),
+        mediaFiles: fs.existsSync(cover) ? [video, cover] : [video],
+        caption: ig.caption,
+        firstComment: ig.firstComment ?? undefined,
+        keywords: ig.keywords,
+      });
+      updateItem(item.id, { status: "rejected" });
+      done++;
+    }
+    return { converted: done };
+  }, { notifyOnDone: (r) => `${r.converted} Reel(s) warten auf Freigabe.` });
+  res.status(202).json({ taskId: task.id });
 });
 
 app.post("/api/queue/fetch-deck", (req, res) => {

@@ -3,8 +3,10 @@
   const TABS = [
     { href: "/queue.html", label: "Freigabe", icon: '<path d="M5 12l4 4L19 6"/>' },
     { href: "/plan.html", label: "Plan", icon: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>' },
+    { href: "/news.html", label: "News", icon: '<path d="M4 5h13v14H6a2 2 0 0 1-2-2V5z"/><path d="M17 9h3v8a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5"/>' },
     { href: "/", label: "Erstellen", icon: '<path d="M12 5v14M5 12h14"/>' },
-    { href: "/settings.html", label: "Einstellungen", icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>' },
+    { href: "/profile.html", label: "Profil", icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>' },
+    { href: "/settings.html", label: "Optionen", icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>' },
   ];
 
   const style = document.createElement("style");
@@ -17,6 +19,7 @@
       min-height: 56px; color: #9A8F7A; text-decoration: none; font-size: 11px; font-weight: 500; position: relative; }
     .tabbar a.active { color: #1F1D18; }
     .tabbar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .tabbar .badge[hidden] { display: none; }
     .tabbar .badge { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px;
       border-radius: 9px; background: #A23B2A; color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
     body { padding-bottom: calc(64px + env(safe-area-inset-bottom)) !important; }
@@ -71,6 +74,10 @@
     .task.done { background: #2F6B3A; } .task.failed { background: #A23B2A; }
     .task a, .task button { color: inherit; font: inherit; font-weight: 600; background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
     .task .acts { display: flex; gap: 14px; margin-top: 4px; }
+    .task.slim { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+    .task.slim b { flex: 1; min-width: 0; font-size: 13px; }
+    .task.slim .err { font-size: 12px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+    .task.slim button[data-dismiss] { text-decoration: none; font-size: 20px; line-height: 1; padding: 0 2px; }
   `;
   document.head.appendChild(tstyle);
   const box = document.createElement("div");
@@ -117,9 +124,11 @@
           <div class="step">${esc(t.step)}</div><div class="bar"><i style="width:${pct ?? 0}%"></i></div></div>`;
       }
       const ok = t.status === "done";
-      return `<div class="task ${ok ? "done" : "failed"}"><div class="top"><b>${esc(t.label)}</b><span class="pct">${ok ? "fertig" : "Fehler"}</span></div>
-        <div class="step">${esc(ok ? "Wartet in der Freigabe" : t.error)}</div>
-        <div class="acts">${ok && location.pathname !== "/queue.html" ? '<a href="/queue.html">Ansehen</a>' : ""}<button data-dismiss="${t.id}">Ausblenden</button></div></div>`;
+      // Fertig/Fehler als kompakte Zeile, damit nichts verdeckt wird
+      return `<div class="task slim ${ok ? "done" : "failed"}">
+        <span class="ok">${ok ? "✓" : "✕"}</span><b>${esc(t.label)}</b>
+        ${ok ? (location.pathname !== "/queue.html" ? '<a href="/queue.html">Ansehen</a>' : "") : `<span class="err" title="${esc(t.error)}">${esc((t.error || "").slice(0, 40))}</span>`}
+        <button data-dismiss="${t.id}" aria-label="Ausblenden">×</button></div>`;
     }).join("");
     document.body.style.paddingBottom = `calc(${64 + box.offsetHeight + (visible.length ? 8 : 0)}px + env(safe-area-inset-bottom))`;
 

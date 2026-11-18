@@ -40,6 +40,12 @@ export interface QueueItem {
   publishedId?: string;
   publishedAt?: string;
   error?: string;
+  /** Wird nach dem Veroeffentlichen als erster Kommentar gepostet (z. B. Decklisten-Link) */
+  firstComment?: string;
+  /** "news" = zusaetzlicher Beitrag, blockiert keinen Tag im Wochenplan */
+  origin?: "news";
+  /** Suchbegriffe fuer den Caption-Linter */
+  keywords?: string[];
   /** Wann zuletzt per Push an die fehlende Freigabe erinnert wurde */
   remindedAt?: string;
 }
