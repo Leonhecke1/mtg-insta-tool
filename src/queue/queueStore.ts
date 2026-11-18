@@ -40,6 +40,10 @@ export interface QueueItem {
   publishedId?: string;
   publishedAt?: string;
   error?: string;
+  /** Wird nach dem Veroeffentlichen als erster Kommentar gepostet (z. B. Decklisten-Link) */
+  firstComment?: string;
+  /** Suchbegriffe fuer den Caption-Linter */
+  keywords?: string[];
   /** Wann zuletzt per Push an die fehlende Freigabe erinnert wurde */
   remindedAt?: string;
 }

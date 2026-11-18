@@ -292,3 +292,17 @@ Ohne Piper bleiben Reels stumm.
 Hintergrund-Auftrag. Die Anfrage kommt sofort zurück (HTTP 202 mit `taskId`). Über der Tab-Leiste
 zeigt jede Seite Schritt und Fortschrittsbalken (`GET /api/tasks`). Seitenwechsel oder das Schließen
 der App brechen nichts ab. Fertige und fehlgeschlagene Aufträge melden sich zusätzlich per Push.
+
+## Regeln aus dem Instagram-Plugin (kostenlos, ohne Claude)
+
+Übernommen aus [instagram-agent-skill](https://github.com/Jakeschincariol/instagram-agent-skill)
+(MIT, © Jake Schincariol). Lizenz in `src/skills/data/LICENSE-instagram-agent-skill`.
+
+- **/ig-caption** (`src/skills/igCaption.ts`, `src/skills/caption.ts`): Captions mit Hook in den
+  ersten 125 Zeichen, kurzen Absätzen mit Suchbegriffen, genau einer Aufforderung und höchstens
+  5 Hashtags. Der Archidekt-Link steht nicht in der Caption, er wird nach dem Veröffentlichen als
+  erster Kommentar gepostet. Die Freigabe zeigt die Feed-Vorschau und das Linter-Ergebnis live.
+- **/ig-human** (`src/skills/human.ts`, Daten `slop.json`): entfernt unsichtbare Zeichen,
+  Gedankenstriche und KI-Floskeln und meldet typische KI-Satzmuster. Kartennamen und MTG-Begriffe
+  (z. B. „synergy“, „unleash“) bleiben geschützt. Automatisch auf jede neue Caption angewendet,
+  manuell über „Text säubern“.

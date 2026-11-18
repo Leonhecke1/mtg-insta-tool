@@ -2,6 +2,7 @@ import * as path from "path";
 import { config, instagramConfigured } from "../config";
 import {
   fetchRecentComments,
+  commentOnMedia,
   hideComment,
   publishCarousel,
   publishImage,
@@ -70,6 +71,12 @@ async function publishDue(): Promise<void> {
       });
       console.log(`[scheduler] published ${item.kind} ${item.id} -> ${publishedId}`);
       if (item.kind !== "comment_reply") invalidateInstagramHistory();
+      // Decklisten-Link als erster Kommentar (Links in Captions sind nicht klickbar, /ig-caption)
+      if (item.firstComment && item.kind !== "story" && item.kind !== "comment_reply") {
+        await commentOnMedia(publishedId, item.firstComment).catch((err) =>
+          console.error(`[scheduler] first comment on ${publishedId} failed:`, err.message)
+        );
+      }
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       updateItem(item.id, { status: "failed", error });

@@ -170,6 +170,12 @@ export async function hideComment(commentId: string): Promise<void> {
   await call("POST", `/${commentId}`, { hide: "true" });
 }
 
+/** Kommentar unter einem eigenen Post (z. B. Decklisten-Link als erster Kommentar). */
+export async function commentOnMedia(mediaId: string, message: string): Promise<string> {
+  const { id } = await call<{ id: string }>("POST", `/${mediaId}/comments`, { message });
+  return id;
+}
+
 export async function replyToComment(commentId: string, message: string): Promise<string> {
   const { id } = await call<{ id: string }>("POST", `/${commentId}/replies`, { message });
   return id;

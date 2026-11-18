@@ -191,7 +191,8 @@ function commanderAbilities(c: EnrichedCard): string[] {
   const short = shortName(c.name);
   return c.oracleText
     .split(/\n/)
-    .map((l) => stripReminder(l).split(c.name).join(short).replace(/\.$/, ""))
+    // Faehigkeitswoerter ("Landfall — ") weglassen, sonst entsteht "Landfall, Whenever ..."
+    .map((l) => stripReminder(l).replace(/^[A-Z][A-Za-z' ]{2,25} — /, "").split(c.name).join(short).replace(/\.$/, ""))
     .filter((l) => l.length > 25);
 }
 
@@ -228,10 +229,17 @@ function countMatching(cards: EnrichedCard[], re: RegExp): number {
 }
 
 function detectArchetypes(deck: Deck): Archetype[] {
-  const pool = [...deck.commanders, ...deck.commanders, ...deck.commanders, ...nonLand(deck)];
-  const scored = ARCHETYPES.map((a) => ({ a, score: countMatching(pool, a.test) }))
+  // Der Commander bestimmt den Plan: eine passende Commander-Faehigkeit zaehlt
+  // so viel wie 12 Karten, damit z. B. ein Landfall-Commander nicht wegen
+  // vieler Token-Erzeuger im Deck als "Tokens" gilt
+  const cards = nonLand(deck);
+  const scored = ARCHETYPES.map((a) => {
+    const cmd = deck.commanders.some((c) => a.test.test(c.oracleText)) ? 1 : 0;
+    return { a, cmd, score: cmd * 12 + countMatching(cards, a.test) };
+  })
     .filter((s) => s.score >= 6)
-    .sort((x, y) => y.score - x.score);
+    // Archetypen, die der Commander selbst hat, immer zuerst
+    .sort((x, y) => y.cmd - x.cmd || y.score - x.score);
   return scored.slice(0, 2).map((s) => s.a);
 }
 

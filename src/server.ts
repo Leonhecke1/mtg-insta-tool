@@ -19,6 +19,9 @@ import {
 import { mediaUrls, runSchedulerNow, startScheduler } from "./queue/scheduler";
 import { fetchNextDeck, planInfo } from "./sourcing/dailyDeck";
 import { getTask, listTasks, startTask } from "./tasks/tasks";
+import { creditFromText, igCaption } from "./skills/igCaption";
+import { lintCaption } from "./skills/caption";
+import { humanize } from "./skills/human";
 import { applyPronunciation, DEFAULT_RULES, getRules, saveRules } from "./settings/pronunciation";
 import * as fs from "fs";
 import { authEnabled, handleLogin, handleLogout, requireAuth } from "./auth";
@@ -231,8 +234,29 @@ function toQueueSummary(item: QueueItem) {
       (f, i) => `/media/${item.mediaToken}/${i}${path.extname(f)}`
     ),
     publicUrls: config.publicBaseUrl ? mediaUrls(item) : [],
+    // /ig-caption-Pruefung fuer die Anzeige in der Freigabe
+    lint: item.caption && item.kind !== "comment_reply" ? lintCaption(item.caption, item.keywords) : undefined,
   };
 }
+
+/** Kartennamen eines Queue-Eintrags (fuer den Humanizer-Schutz) */
+function cardNamesFor(itemId?: string): string[] {
+  const item = itemId ? getItem(itemId) : undefined;
+  const deck = item?.sourceJobId ? getJob(item.sourceJobId)?.result?.deck : undefined;
+  return deck ? [...deck.commanders, ...deck.mainboard].map((c) => c.name) : [];
+}
+
+app.post("/api/lint/caption", (req, res) => {
+  const text = String(req.body?.text ?? "");
+  const keywords = Array.isArray(req.body?.keywords) ? req.body.keywords.map(String) : [];
+  res.json(lintCaption(text, keywords));
+});
+
+/** /ig-human auf einen Text anwenden (Kartennamen des Eintrags bleiben unangetastet) */
+app.post("/api/humanize", (req, res) => {
+  const text = String(req.body?.text ?? "").slice(0, 5000);
+  res.json(humanize(text, cardNamesFor(req.body?.itemId)));
+});
 
 function validateForApproval(item: QueueItem): string | null {
   if (item.kind === "comment_reply") {
@@ -282,6 +306,7 @@ app.post("/api/queue", async (req, res) => {
       let mediaFiles: string[] = [];
       let caption: string | undefined = body.caption;
       let label = body.label as string | undefined;
+      let ig: ReturnType<typeof igCaption> | undefined;
 
       if (kind === "reel" && result) {
         // Animiertes Reel aus dem Deck (eigene Szenen, kein Slide-Zoom)
@@ -290,7 +315,8 @@ app.post("/api/queue", async (req, res) => {
         const hook = reelScript(result.deck, hookIn).hook;
         const cover = reelCoverPath(video);
         mediaFiles = fs.existsSync(cover) ? [video, cover] : [video];
-        caption = caption ?? result.caption;
+        ig = igCaption(result.deck, { kind: "reel", archidektUrl: job?.input.archidektUrl, creditUser: creditFromText(result.texts.caption.body) });
+        caption = caption ?? ig.caption;
         label = label ?? `${result.deckSummary?.commander ?? ""} · "${hook}"`;
       } else if (kind === "reel" && videoFile) {
         mediaFiles = [videoFile];
@@ -302,7 +328,8 @@ app.post("/api/queue", async (req, res) => {
         }
         if (kind !== "carousel") pngs = pngs.slice(0, 1);
         mediaFiles = await ensureJpegs(pngs);
-        caption = caption ?? result.caption;
+        ig = igCaption(result.deck, { kind: kind === "carousel" ? "carousel" : "image", archidektUrl: job?.input.archidektUrl, creditUser: creditFromText(result.texts.caption.body) });
+        caption = caption ?? ig.caption;
         label = label ?? result.deckSummary?.commander;
       }
 
@@ -315,6 +342,8 @@ app.post("/api/queue", async (req, res) => {
         mediaToken: nanoid(24),
         mediaFiles,
         caption: kind === "story" ? undefined : caption,
+        firstComment: kind === "story" ? undefined : ig?.firstComment ?? undefined,
+        keywords: ig?.keywords,
         sourceJobId: body.jobId,
         label,
       };

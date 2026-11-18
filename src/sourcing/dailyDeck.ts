@@ -13,6 +13,7 @@ import { buildNewPostStory, buildReel, reelCoverPath } from "../render/reel";
 import { notify } from "../push/push";
 import { addItem, listItems } from "../queue/queueStore";
 import { Report, subReport } from "../tasks/tasks";
+import { creditFromText, igCaption } from "../skills/igCaption";
 
 const noop: Report = () => undefined;
 
@@ -290,6 +291,12 @@ async function draftForDay(when: Date, report: Report = noop): Promise<string | 
   const label = r.deckSummary?.commander ?? job.id;
 
   const media = reelDay ? await reelMedia(r.deck, r.jobDir, subReport(report, 0.56, 0.92)) : jpgs;
+  // Caption nach /ig-caption (+ /ig-human), Decklisten-Link als erster Kommentar
+  const ig = igCaption(r.deck, {
+    kind: reelDay ? "reel" : "carousel",
+    archidektUrl: job.input.archidektUrl,
+    creditUser: produced.own ? undefined : creditFromText(r.texts.caption.body),
+  });
   addItem({
     id: nanoid(10),
     kind: reelDay ? "reel" : "carousel",
@@ -298,7 +305,9 @@ async function draftForDay(when: Date, report: Report = noop): Promise<string | 
     scheduledAt: when.toISOString(),
     mediaToken: nanoid(24),
     mediaFiles: media,
-    caption: r.caption,
+    caption: ig.caption,
+    firstComment: ig.firstComment ?? undefined,
+    keywords: ig.keywords,
     sourceJobId: job.id,
     label,
   });
