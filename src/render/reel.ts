@@ -358,6 +358,8 @@ function pageHtml(deck: Deck, s: ReelScript, beats: TimedBeat[], total: number, 
 export interface ReelOptions {
   /** Eigener Hook; leer = aus dem Deck abgeleitet */
   hook?: string;
+  /** Fortschritt (Schritt, 0..1) fuer die Anzeige in der App */
+  onProgress?: (step: string, progress?: number) => void;
 }
 
 /**
@@ -368,10 +370,12 @@ export interface ReelOptions {
 export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = {}): Promise<string> {
   if (!ffmpegPath) throw new Error("ffmpeg-static binary not available on this platform");
   const script = reelScript(deck, opts.hook);
+  const report = opts.onProgress ?? (() => undefined);
 
   // 1. Voice-over je Szene (optional)
   const voices: ({ file: string; seconds: number } | null)[] = [];
   for (let i = 0; i < script.beats.length; i++) {
+    if (config.piperBin) report(`Reel: Sprachaufnahme ${i + 1}/${script.beats.length}`, (i / script.beats.length) * 0.08);
     voices.push(await synthesizeVoice(speakable(script.beats[i].say), jobDir, `reel-voice-${i}.wav`));
   }
   const withVoice = voices.some(Boolean);
@@ -425,8 +429,10 @@ export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = 
     await page.setViewport({ width: W, height: H, deviceScaleFactor: 1 });
     await page.setContent(pageHtml(deck, script, beats, total, withVoice), { waitUntil: "networkidle0", timeout: 90_000 });
     await page.evaluate("window.assetsReady()");
+    report("Reel: lade Kartenbilder", 0.08);
     const coverFrame = Math.min(frames - 1, Math.round(1.8 * FPS));
     for (let f = 0; f < frames; f++) {
+      if (f % 15 === 0) report(`Reel: rendere Bild ${f + 1} von ${frames}`, 0.1 + 0.85 * (f / frames));
       await page.evaluate(`window.renderAt(${(f / FPS).toFixed(4)})`);
       const buf = (await page.screenshot({ type: "jpeg", quality: 90 })) as Buffer;
       // Titelbild aus der Hook-Szene (Vorschau in der App + Reel-Cover bei Instagram)
@@ -440,6 +446,7 @@ export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = 
     ff.stdin.end();
     if (browser) await browser.close();
   }
+  report("Reel: Video wird fertig kodiert", 0.96);
   await ffDone;
   voices.forEach((v) => v && fs.rmSync(v.file, { force: true }));
   return out;

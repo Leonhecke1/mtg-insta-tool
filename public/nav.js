@@ -49,4 +49,90 @@
   window.updateNavBadge = updateBadge;
 
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+
+  // ---------------------------------------------------------------------
+  // Hintergrund-Auftraege: Fortschritt auf jeder Seite ueber der Tab-Leiste.
+  // Der Server arbeitet unabhaengig von der Seite weiter.
+  // ---------------------------------------------------------------------
+  const tstyle = document.createElement("style");
+  tstyle.textContent = `
+    .tasks { position: fixed; left: 8px; right: 8px; z-index: 49; bottom: calc(64px + env(safe-area-inset-bottom));
+      display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+    .task { pointer-events: auto; background: #1F1D18; color: #F4EFE4; border-radius: 14px; padding: 10px 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.25); font-size: 13px; max-width: 700px; margin: 0 auto; width: 100%; }
+    .task .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+    .task b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .task .pct { font-variant-numeric: tabular-nums; opacity: .8; flex: none; }
+    .task .step { opacity: .8; margin: 2px 0 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .task .bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.18); overflow: hidden; }
+    .task .bar i { display: block; height: 100%; background: #C2D8CB; transition: width .6s ease; }
+    .task.indet .bar i { width: 35% !important; animation: tslide 1.2s infinite ease-in-out; }
+    @keyframes tslide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+    .task.done { background: #2F6B3A; } .task.failed { background: #A23B2A; }
+    .task a, .task button { color: inherit; font: inherit; font-weight: 600; background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+    .task .acts { display: flex; gap: 14px; margin-top: 4px; }
+  `;
+  document.head.appendChild(tstyle);
+  const box = document.createElement("div");
+  box.className = "tasks";
+  document.body.appendChild(box);
+
+  const DISMISS_KEY = "fm-dismissed-tasks";
+  const dismissed = new Set((() => { try { return JSON.parse(localStorage.getItem(DISMISS_KEY) || "[]"); } catch { return []; } })());
+  const saveDismissed = () => { try { localStorage.setItem(DISMISS_KEY, JSON.stringify([...dismissed].slice(-50))); } catch {} };
+  const lastStatus = {};
+  let timer = null;
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  async function pollTasks() {
+    clearTimeout(timer);
+    let list = [];
+    try {
+      const r = await fetch("/api/tasks");
+      if (r.ok) list = await r.json();
+    } catch {}
+    const recentMs = 10 * 60_000;
+    // Laufende immer, von den fertigen nur die zwei neuesten (sonst wird der Bildschirm voll)
+    const candidates = list.filter((t) => !dismissed.has(t.id) &&
+      (t.status === "running" || Date.now() - new Date(t.finishedAt).getTime() < recentMs));
+    const visible = [
+      ...candidates.filter((t) => t.status === "running"),
+      ...candidates.filter((t) => t.status !== "running").slice(0, 2),
+    ];
+
+    let anyFinished = false;
+    for (const t of list) {
+      if (lastStatus[t.id] === "running" && t.status !== "running") anyFinished = true;
+      lastStatus[t.id] = t.status;
+    }
+    if (anyFinished) {
+      window.dispatchEvent(new CustomEvent("tasks-done"));
+      updateBadge();
+    }
+
+    box.innerHTML = visible.map((t) => {
+      const pct = t.progress == null ? null : Math.round(t.progress * 100);
+      if (t.status === "running") {
+        return `<div class="task ${pct == null ? "indet" : ""}"><div class="top"><b>${esc(t.label)}</b><span class="pct">${pct == null ? "" : pct + " %"}</span></div>
+          <div class="step">${esc(t.step)}</div><div class="bar"><i style="width:${pct ?? 0}%"></i></div></div>`;
+      }
+      const ok = t.status === "done";
+      return `<div class="task ${ok ? "done" : "failed"}"><div class="top"><b>${esc(t.label)}</b><span class="pct">${ok ? "fertig" : "Fehler"}</span></div>
+        <div class="step">${esc(ok ? "Wartet in der Freigabe" : t.error)}</div>
+        <div class="acts">${ok && location.pathname !== "/queue.html" ? '<a href="/queue.html">Ansehen</a>' : ""}<button data-dismiss="${t.id}">Ausblenden</button></div></div>`;
+    }).join("");
+    document.body.style.paddingBottom = `calc(${64 + box.offsetHeight + (visible.length ? 8 : 0)}px + env(safe-area-inset-bottom))`;
+
+    const running = list.some((t) => t.status === "running");
+    timer = setTimeout(pollTasks, running ? 1500 : 15000);
+  }
+  box.addEventListener("click", (e) => {
+    const id = e.target.dataset && e.target.dataset.dismiss;
+    if (!id) return;
+    dismissed.add(id); saveDismissed(); pollTasks();
+  });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) pollTasks(); });
+  // Seiten rufen das nach dem Start eines Auftrags auf, damit sofort angezeigt wird
+  window.trackTasks = pollTasks;
+  pollTasks();
 })();
