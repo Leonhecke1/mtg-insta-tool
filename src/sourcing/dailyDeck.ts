@@ -8,6 +8,7 @@ import { fetchArchidektDeck } from "../parser/archidekt";
 import { runPipeline } from "../pipeline";
 import { createJob, listJobs, updateJob } from "../jobs/jobStore";
 import { ensureJpegs } from "../render/renderer";
+import { buildNewPostStory } from "../render/reel";
 import { addItem, listItems } from "../queue/queueStore";
 import { Job } from "../types";
 
@@ -256,7 +257,7 @@ export async function ensureDailyDrafts(): Promise<void> {
         createdAt: new Date().toISOString(),
         scheduledAt: storyAt.toISOString(),
         mediaToken: nanoid(24),
-        mediaFiles: [jpgs[0]],
+        mediaFiles: [await buildNewPostStory(r.deck, r.slideFiles[0], r.jobDir)],
         sourceJobId: job.id,
         label: `${label} (Story)`,
       });

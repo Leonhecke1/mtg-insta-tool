@@ -33,6 +33,12 @@ export const config = {
   publicBaseUrl: optional("PUBLIC_BASE_URL").replace(/\/+$/, ""),
   schedulerIntervalSec: parseInt(optional("SCHEDULER_INTERVAL_SEC", "60"), 10),
   commentPollMinutes: parseInt(optional("COMMENT_POLL_MINUTES", "15"), 10),
+  // Antworten auf Kommentare unter eigenen Posts automatisch freigeben
+  // (nach einer Wartezeit, in der man in /queue.html noch ablehnen kann)
+  autoReply: optional("AUTO_REPLY", "false") === "true",
+  autoReplyDelayMin: parseInt(optional("AUTO_REPLY_DELAY_MIN", "10"), 10),
+  // Kommentare, die das LLM als Spam/Bot erkennt, automatisch ausblenden
+  autoHideSpam: optional("AUTO_HIDE_SPAM", "true") === "true",
 
   // --- Taeglicher Deck-Post (Entwuerfe aus Archidekt) ---
   dailyDecks: optional("DAILY_DECKS", "false") === "true",

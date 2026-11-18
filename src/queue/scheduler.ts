@@ -2,6 +2,7 @@ import * as path from "path";
 import { config, instagramConfigured } from "../config";
 import {
   fetchRecentComments,
+  hideComment,
   publishCarousel,
   publishImage,
   publishReel,
@@ -84,20 +85,35 @@ async function pollComments(): Promise<void> {
     if (c.repliedByMe || isCommentSeen(c.id)) continue;
     markCommentSeen(c.id);
 
+    // Alte Kommentare (z. B. beim ersten Lauf) nicht nachtraeglich beantworten
+    const ageH = (Date.now() - new Date(c.timestamp).getTime()) / 3600_000;
+    if (ageH > 7 * 24) continue;
+
     let replyText = "";
     try {
       replyText = await draftReply(c.text, c.username, c.mediaCaption);
     } catch (err) {
       console.error("[scheduler] reply draft failed:", err);
     }
-    if (replyText === "SKIP") continue;
+    if (replyText === "SKIP") {
+      if (config.autoHideSpam) {
+        await hideComment(c.id)
+          .then(() => console.log(`[scheduler] hid spam comment by @${c.username}`))
+          .catch((err) => console.error("[scheduler] hide failed:", err.message));
+      }
+      continue;
+    }
 
+    // Auto-Freigabe nur fuer frische Kommentare mit fertigem Antworttext
+    const auto = config.autoReply && replyText.trim() !== "" && ageH <= 48;
     addItem({
       id: nanoid(10),
       kind: "comment_reply",
-      status: "draft",
+      status: auto ? "approved" : "draft",
       createdAt: new Date().toISOString(),
-      scheduledAt: new Date().toISOString(),
+      scheduledAt: new Date(
+        Date.now() + (auto ? config.autoReplyDelayMin * 60_000 : 0)
+      ).toISOString(),
       mediaToken: nanoid(24),
       mediaFiles: [],
       commentId: c.id,

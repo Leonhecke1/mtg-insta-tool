@@ -224,3 +224,18 @@ ARCHIDEKT_OWN_USERNAME=floating.mana
 ```
 
 Mit `ANTHROPIC_API_KEY` schreibt das LLM Tagline, Gameplan und Caption, ohne Key gibt es nur Platzhaltertexte.
+
+### Automatische Interaktion
+
+```
+AUTO_REPLY=true            # Antworten auf Kommentare (< 48 h alt) automatisch freigeben
+AUTO_REPLY_DELAY_MIN=10    # Wartezeit, in der man in /queue.html noch ablehnen/ändern kann
+AUTO_HIDE_SPAM=true        # vom LLM als Spam/Bot erkannte Kommentare ausblenden
+```
+
+Benötigt `ANTHROPIC_API_KEY`. Kommentare, die älter als 7 Tage sind, werden ignoriert.
+Liken, Kommentieren und Folgen bei fremden Accounts wird bewusst nicht automatisiert,
+weil die API das nicht anbietet und Bots dafür gesperrt werden.
+
+Die tägliche Story ist eine „NEW POST“-Grafik mit dem Cover. Beiträge teilen und
+Link-Sticker kann die API nicht.

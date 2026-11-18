@@ -87,7 +87,7 @@ function render(it) {
   const isReply = it.kind === "comment_reply";
   el.innerHTML = `
     <h3>${esc(KIND[it.kind])} · ${esc(it.label || "")}<span class="pill ${it.status}">${esc(STATUS[it.status])}</span></h3>
-    <div class="meta">${isReply ? "" : "Geplant: " + new Date(it.scheduledAt).toLocaleString("de-DE")}</div>
+    <div class="meta">${isReply ? (it.status === "approved" ? "Automatisch freigegeben, geht raus: " + new Date(it.scheduledAt).toLocaleTimeString("de-DE") : "") : "Geplant: " + new Date(it.scheduledAt).toLocaleString("de-DE")}</div>
     ${it.previewUrls.length ? `<div class="thumbs">${it.previewUrls.map((u) => u.endsWith(".mp4") ? `<video src="${u}" controls preload="metadata" style="height:320px"></video>` : `<img src="${u}" loading="lazy">`).join("")}</div>` : ""}
     ${isReply ? `<div class="quote"><b>@${esc(it.commentUsername)}:</b> ${esc(it.commentText)}</div>` : ""}
     ${it.kind === "story" ? "" : `<textarea ${editable ? "" : "disabled"}>${esc(isReply ? it.replyText : it.caption)}</textarea>`}

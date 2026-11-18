@@ -140,3 +140,30 @@ export async function buildReel(
   frames.forEach((f) => fs.rmSync(f, { force: true }));
   return out;
 }
+
+/**
+ * Story-Grafik "Neuer Post": Cover des Carousels gerahmt auf geblurrtem
+ * Artwork mit "NEW POST"-Hinweis. Nicht klickbar - Beitrag teilen und
+ * Link-Sticker kann die Instagram-API nicht.
+ */
+export async function buildNewPostStory(deck: Deck, coverFile: string, jobDir: string): Promise<string> {
+  const c = deck.commanders[0];
+  const font = FONT_STACK.replace(/"/g, "'");
+  const html = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;width:${W}px;height:${H}px;overflow:hidden;position:relative;font-family:${font};">
+  ${backdrop(c?.imageArtCrop ?? c?.imageNormal ?? null)}
+  <div style="position:absolute;top:210px;width:100%;text-align:center;">
+    <span style="background:#fff;color:#1F1D18;font-size:44px;font-weight:800;letter-spacing:4px;padding:12px 28px;border-radius:999px;">NEW POST</span>
+  </div>
+  <img src="${toDataUri(coverFile)}" style="position:absolute;left:50%;top:52%;transform:translate(-50%,-50%) rotate(-2deg);
+    width:800px;height:1000px;object-fit:cover;border-radius:28px;border:10px solid #fff;box-shadow:0 40px 100px rgba(0,0,0,0.6);">
+  <div style="position:absolute;bottom:170px;width:100%;text-align:center;color:#fff;font-size:40px;font-weight:700;">
+    Full deck tech on the profile
+  </div>
+  <div style="position:absolute;bottom:110px;width:100%;text-align:center;color:rgba(255,255,255,0.75);font-size:34px;font-weight:600;">@floating.mana</div>
+</body></html>`;
+  const [frame] = await renderFrames([html], jobDir);
+  const out = path.join(jobDir, "story-new-post.jpg");
+  fs.renameSync(frame, out);
+  return out;
+}
