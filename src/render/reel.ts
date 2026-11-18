@@ -725,9 +725,107 @@ function voiceStudioEnabled(): boolean {
 
 /**
  * VoiceStudio (github.com/debpalash/VoiceStudio): eigener Dienst (Docker) auf dem
- * Server, OpenAI-kompatibel. Ein Aufruf pro Szene; dieselbe Stimmprofil-ID sorgt
- * fuer dieselbe Stimme in allen Szenen und Reels.
+ * Server, OpenAI-kompatibel. Ein Aufruf pro Szene.
+ *
+ * Gleiche Stimme ueberall: Mit voice "default" erfindet das Modell bei jeder
+ * Anfrage eine neue Stimme (klingt wie zwei Sprecher im Wechsel). Deshalb legt
+ * das Tool beim ersten Mal ein festes Stimmprofil an (Probeaufnahme mit festem
+ * Seed als Referenz) und spricht danach jede Szene mit diesem Profil.
  */
+const VS_PROFILE = "floating-mana-narrator";
+const VS_SAMPLE =
+  "Hey, welcome back. Today I want to show you something I really love, so let's take a look at how it all works together.";
+let vsVoiceCache: string | null = null;
+
+const vsBase = () => config.voiceStudioUrl.replace(/\/+$/, "");
+const vsAuth = (): Record<string, string> => (config.voiceStudioApiKey ? { Authorization: `Bearer ${config.voiceStudioApiKey}` } : {});
+
+async function vsSpeech(input: string, voice: string, extra: Record<string, unknown> = {}): Promise<Buffer> {
+  const res = await fetch(`${vsBase()}/v1/audio/speech`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...vsAuth() },
+    body: JSON.stringify({
+      model: config.voiceStudioModel,
+      voice,
+      input,
+      response_format: "wav",
+      speed: config.voiceStudioSpeed,
+      language: "en",
+      // Seed nur ohne Profil; ein Profil bringt seinen eigenen (sonst klaenge der Archetyp anders)
+      ...(voice === "default" ? { seed: config.voiceStudioSeed } : {}),
+      ...(config.voiceStudioInstructions ? { instructions: config.voiceStudioInstructions } : {}),
+      ...extra,
+    }),
+    signal: AbortSignal.timeout(config.voiceStudioTimeoutSec * 1000),
+  });
+  if (!res.ok) throw new Error(`VoiceStudio ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+/** Feste Stimme: Archetyp (z. B. feat_17_the_commentator), Profil-ID/-Name oder automatisches Profil */
+async function voiceStudioVoice(): Promise<string> {
+  if (vsVoiceCache) return vsVoiceCache;
+  const set = (config.voiceStudioVoice || "").trim();
+  try {
+    const list = (await (await fetch(`${vsBase()}/profiles`, { headers: vsAuth() })).json()) as { id?: string; name?: string }[];
+    const profiles = Array.isArray(list) ? list : [];
+    if (set && set.toLowerCase() !== "default") {
+      // Archetyp aus der VoiceStudio-Galerie? Dann einmal als Klon-Profil festhalten
+      const arch = await fetch(`${vsBase()}/archetypes/${encodeURIComponent(set)}`, { headers: vsAuth() });
+      if (!arch.ok) return (vsVoiceCache = set); // normale Profil-ID oder -Name
+      const name = `floating-mana-${set}`;
+      const hit = profiles.find((p) => p.name === name);
+      if (hit) return (vsVoiceCache = hit.id ?? name);
+      const a = (await arch.json()) as { sample_script?: string; name?: string };
+      try {
+        const prev = await fetch(`${vsBase()}/archetypes/${encodeURIComponent(set)}/preview?local=true`, {
+          headers: vsAuth(),
+          signal: AbortSignal.timeout(config.voiceStudioTimeoutSec * 1000),
+        });
+        if (!prev.ok || !a.sample_script) throw new Error(`Hoerprobe ${prev.status}`);
+        const created = await vsCreateProfile(name, Buffer.from(await prev.arrayBuffer()), a.sample_script);
+        console.log(`[tts] VoiceStudio: Stimme "${set}" als Profil "${name}" festgehalten (${created})`);
+        return (vsVoiceCache = created);
+      } catch (err) {
+        // Fallback: Archetyp direkt als Design-Profil uebernehmen (fester Seed im Profil)
+        const use = await fetch(`${vsBase()}/archetypes/${encodeURIComponent(set)}/use?name=${encodeURIComponent(name)}`, { method: "POST", headers: vsAuth() });
+        if (!use.ok) throw new Error(`Archetyp uebernehmen: ${use.status} (${err instanceof Error ? err.message : err})`);
+        const r = (await use.json()) as { profile_id?: string };
+        console.log(`[tts] VoiceStudio: Archetyp "${set}" als Design-Profil uebernommen (${r.profile_id})`);
+        return (vsVoiceCache = r.profile_id ?? name);
+      }
+    }
+    // Keine Stimme gesetzt: eigenes Profil aus einer Probeaufnahme mit festem Seed
+    const hit = profiles.find((p) => p.name === VS_PROFILE);
+    if (hit) return (vsVoiceCache = hit.id ?? VS_PROFILE);
+    let wav: Buffer;
+    try {
+      wav = await vsSpeech(VS_SAMPLE, "default", { instruct: config.voiceStudioVoiceDesign });
+    } catch {
+      wav = await vsSpeech(VS_SAMPLE, "default");
+    }
+    const created = await vsCreateProfile(VS_PROFILE, wav, VS_SAMPLE);
+    console.log(`[tts] VoiceStudio-Stimmprofil "${VS_PROFILE}" angelegt (${created})`);
+    return (vsVoiceCache = created);
+  } catch (err) {
+    console.warn(`[tts] VoiceStudio: kein festes Stimmprofil (${err instanceof Error ? err.message : err}), nutze ${set || "default"} + Seed`);
+    return set || "default";
+  }
+}
+
+async function vsCreateProfile(name: string, audio: Buffer, refText: string): Promise<string> {
+  const form = new FormData();
+  form.append("name", name);
+  form.append("ref_audio", new Blob([new Uint8Array(audio)], { type: "audio/wav" }), "voice.wav");
+  form.append("ref_text", refText);
+  form.append("seed", String(config.voiceStudioSeed));
+  form.append("kind", "clone");
+  const res = await fetch(`${vsBase()}/profiles`, { method: "POST", headers: vsAuth(), body: form });
+  if (!res.ok) throw new Error(`Profil anlegen: ${res.status} ${(await res.text()).slice(0, 200)}`);
+  const created = (await res.json()) as { id?: string };
+  return created.id ?? name;
+}
+
 async function synthesizeVoiceStudio(
   texts: string[],
   dir: string,
@@ -735,33 +833,16 @@ async function synthesizeVoiceStudio(
   report: (step: string, p?: number) => void
 ): Promise<({ file: string; seconds: number } | null)[]> {
   const out: ({ file: string; seconds: number } | null)[] = [];
-  const url = config.voiceStudioUrl.replace(/\/+$/, "") + "/v1/audio/speech";
+  report("Sprachaufnahme (VoiceStudio): Stimme wird geladen", 0);
+  const voice = await voiceStudioVoice();
   for (let i = 0; i < texts.length; i++) {
     report(`Sprachaufnahme (VoiceStudio) ${i + 1}/${texts.length}`, (i / texts.length) * 0.08);
     if (!texts[i]) {
       out.push(null);
       continue;
     }
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(config.voiceStudioApiKey ? { Authorization: `Bearer ${config.voiceStudioApiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        model: config.voiceStudioModel,
-        voice: config.voiceStudioVoice,
-        input: texts[i],
-        response_format: "wav",
-        speed: config.voiceStudioSpeed,
-        language: "en",
-        ...(config.voiceStudioInstructions ? { instructions: config.voiceStudioInstructions } : {}),
-      }),
-      signal: AbortSignal.timeout(config.voiceStudioTimeoutSec * 1000),
-    });
-    if (!res.ok) throw new Error(`VoiceStudio ${res.status}: ${(await res.text()).slice(0, 200)}`);
     const file = path.join(dir, `${prefix}${i}.wav`);
-    fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+    fs.writeFileSync(file, await vsSpeech(texts[i], voice));
     out.push({ file, seconds: await wavSeconds(file) });
   }
   return out;

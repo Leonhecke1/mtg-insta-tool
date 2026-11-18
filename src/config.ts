@@ -62,10 +62,14 @@ export const config = {
   voiceStudioUrl: optional("VOICESTUDIO_URL", "http://127.0.0.1:3900"),
   voiceStudioModel: optional("VOICESTUDIO_MODEL", "omnivoice"),
   // Stimmprofil-ID oder -Name aus VoiceStudio (z. B. eine geklonte/entworfene Stimme)
-  voiceStudioVoice: optional("VOICESTUDIO_VOICE", "default"),
+  voiceStudioVoice: optional("VOICESTUDIO_VOICE", "feat_17_the_commentator"),
   // nur noetig, wenn VoiceStudio nicht auf demselben Rechner (loopback) laeuft
   voiceStudioApiKey: optional("VOICESTUDIO_API_KEY"),
   voiceStudioSpeed: parseFloat(optional("VOICESTUDIO_SPEED", "1.0")),
+  // Fester Zufallswert: ohne ihn erfindet das Modell bei "default" pro Szene eine neue Stimme
+  voiceStudioSeed: parseInt(optional("VOICESTUDIO_SEED", "42"), 10),
+  // Stimmbeschreibung fuer das automatisch angelegte Profil (nur beim ersten Mal)
+  voiceStudioVoiceDesign: optional("VOICESTUDIO_VOICE_DESIGN", "male, young adult, american accent, moderate pitch"),
   // Sprechstil, z. B. "friendly, energetic, conversational"
   voiceStudioInstructions: optional("VOICESTUDIO_INSTRUCTIONS"),
   voiceStudioTimeoutSec: parseFloat(optional("VOICESTUDIO_TIMEOUT_SEC", "300")),
