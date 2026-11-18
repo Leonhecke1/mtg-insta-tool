@@ -198,7 +198,9 @@ export function reelNarration(hook: string, deck: Deck, tagline: string): string
   ]
     .join(" ")
     .replace(/[€&]/g, (c) => (c === "€" ? " euros" : " and "))
-    .replace(/[^\p{L}\p{N}\s.,!?'+/-]/gu, " ");
+    .replace(/[^\p{L}\p{N}\s.,!?'+/-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
