@@ -152,8 +152,51 @@ function pick<T>(arr: T[], seed: string): T {
   return arr[hash(seed) % arr.length];
 }
 
+/**
+ * Was eine Karte im Deck tut, als kurze Verbphrase fuer Sprechtext und
+ * Bildunterschrift ("Toxrill wipes the board"). Reihenfolge = Prioritaet.
+ */
+const ROLES: [RegExp, string][] = [
+  [/twice that many|double the number|create twice|that many plus one/i, "doubles everything you make"],
+  [/(?:destroy|exile) all (?:other )?(?:creatures|nonland)|all creatures get -\d|each creature (?:you don't control )?gets -\d|deals? \d+ damage to each creature/i, "wipes the board"],
+  [/extra turn/i, "takes extra turns"],
+  [/each opponent loses \d+ life|each opponent loses life/i, "drains the table"],
+  [/sacrifice (?:a|another) (?:creature|artifact|permanent):/i, "turns your pieces into value"],
+  [/from your graveyard to the battlefield|return (?:target|up to \w+) creature cards? from your graveyard/i, "brings threats back from the graveyard"],
+  [/creatures you control get \+\d|other \w+ (?:creatures )?you control get \+\d/i, "pumps the whole team"],
+  [/cost \{\d+\} less|costs? \{\d+\} less|spells you cast cost/i, "makes your spells cheaper"],
+  [/copy (?:target|that|it)|create a token that's a copy/i, "copies your best threats"],
+  [/put (?:a|an additional|that many) \+1\/\+1 counters?|\+1\/\+1 counter on each/i, "spreads +1/+1 counters"],
+  [/treasure token/i, "makes Treasure"],
+  [/create[^.]*tokens?/i, "makes extra tokens"],
+  [/investigate|clue/i, "makes clues"],
+  [/mill|put the top [^.]* into your graveyard/i, "fills the graveyard"],
+  [/untap (?:target|all|each|up to)/i, "untaps your engine"],
+  [/hexproof|indestructible|protection from/i, "protects your key pieces"],
+  [/draw (?:a|two|three|four|\w+) cards?|draws? cards? equal/i, "keeps the cards flowing"],
+  [/add \{|search your library for (?:a|up to \w+) (?:basic )?land/i, "ramps you ahead"],
+  [/(?:destroy|exile) target|deals? \d+ damage to (?:any|target)/i, "removes a problem"],
+];
+
+export function cardRole(c: EnrichedCard): string {
+  const hit = ROLES.find(([re]) => re.test(c.oracleText));
+  if (hit) return hit[1];
+  if (isCreature(c)) return "adds pressure on the board";
+  if (isInstant(c)) return "answers threats at instant speed";
+  return "rounds out the engine";
+}
+
+/** Alle "echten" Faehigkeiten des Commanders (keine reinen Keyword-Zeilen), Name gekuerzt. */
+function commanderAbilities(c: EnrichedCard): string[] {
+  const short = shortName(c.name);
+  return c.oracleText
+    .split(/\n/)
+    .map((l) => stripReminder(l).split(c.name).join(short).replace(/\.$/, ""))
+    .filter((l) => l.length > 25);
+}
+
 /** "Hakbal of the Surging Soul" bleibt, "Ezrim, Agency Chief" -> "Ezrim" */
-function shortName(name: string): string {
+export function shortName(name: string): string {
   return name.split(",")[0].split(" // ")[0].trim();
 }
 
@@ -204,16 +247,49 @@ function tribe(deck: Deck): { name: string; count: number } | null {
   return best && best[1] >= 12 ? { name: best[0], count: best[1] } : null;
 }
 
+/** Mechaniken, ueber die Commander und Karten zusammenspielen */
+const SYNERGY_TERMS: RegExp[] = [
+  /artifact/i, /enchantment/i, /token/i, /\+1\/\+1 counter/i, /-1\/-1 counter/i, /counter/i, /graveyard/i,
+  /sacrifice/i, /dies/i, /creature spell/i, /instant|sorcery/i, /\bland/i, /draw/i, /gain[s]? life|lifelink/i,
+  /attack/i, /equip|equipment/i, /aura/i, /clue|investigate/i, /food/i, /treasure/i, /exile/i, /blink|flicker|return it to the battlefield/i,
+  /copy/i, /cast/i, /enters/i, /damage/i, /\bmill/i, /discard/i,
+];
+
+/**
+ * Schluesselkarten: was am meisten mit dem Commander zusammenspielt.
+ * Punkte fuer gemeinsame Mechaniken mit dem Commander-Text, fuer den
+ * Archetyp und fuer eine erkannte Rolle; Preis nur als Gleichstand-Brecher.
+ * Die drei Karten sollen moeglichst verschiedene Rollen haben.
+ */
 function keyCardObjs(deck: Deck, arch: Archetype | undefined, n: number): EnrichedCard[] {
   const commanderNames = new Set(deck.commanders.map((c) => c.name));
-  const candidates = nonLand(deck).filter(
-    (c) => !STAPLES.has(c.name.toLowerCase()) && !commanderNames.has(c.name)
-  );
-  const synergy = arch ? candidates.filter((c) => arch.test.test(c.oracleText)) : [];
-  const ranked = [...(synergy.length >= n ? synergy : candidates)].sort(
-    (a, b) => (b.priceEur ?? 0) - (a.priceEur ?? 0)
-  );
-  return ranked.slice(0, n);
+  const cmdText = deck.commanders.map((c) => c.oracleText).join("\n");
+  const cmdTerms = SYNERGY_TERMS.filter((re) => re.test(cmdText));
+  const tribeName = tribe(deck)?.name;
+
+  const scored = nonLand(deck)
+    .filter((c) => !STAPLES.has(c.name.toLowerCase()) && !commanderNames.has(c.name))
+    .map((c) => {
+      const shared = cmdTerms.filter((re) => re.test(c.oracleText)).length;
+      const archetype = arch && arch.test.test(c.oracleText) ? 1 : 0;
+      const tribal = tribeName && new RegExp(`\\b${tribeName}s?\\b`, "i").test(c.oracleText) ? 1 : 0;
+      const hasRole = ROLES.some(([re]) => re.test(c.oracleText)) ? 1 : 0;
+      const score = shared * 2 + archetype * 3 + tribal * 2 + hasRole + Math.min(1, (c.priceEur ?? 0) / 40);
+      return { c, score, role: cardRole(c) };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  // Erst verschiedene Rollen, dann auffuellen
+  const picked: typeof scored = [];
+  for (const s of scored) {
+    if (picked.length >= n) break;
+    if (!picked.some((p) => p.role === s.role)) picked.push(s);
+  }
+  for (const s of scored) {
+    if (picked.length >= n) break;
+    if (!picked.includes(s)) picked.push(s);
+  }
+  return picked.map((p) => p.c);
 }
 
 function keyCards(deck: Deck, arch: Archetype | undefined, n: number): string[] {
@@ -269,6 +345,8 @@ export interface DeckAnalysis {
   engine: string | null; // "turns every spell into more bodies on the board"
   finish: string | null;
   ability: string | null;
+  /** Alle relevanten Faehigkeiten des (ersten) Commanders */
+  abilities: string[];
   keyCards: EnrichedCard[];
   stats: Stats;
   priceEur: number;
@@ -314,6 +392,7 @@ export function analyzeDeck(deck: Deck): DeckAnalysis {
     engine: main?.engine ?? null,
     finish: main?.finish ?? null,
     ability: deck.commanders[0] ? commanderAbility(deck.commanders[0]) : null,
+    abilities: deck.commanders[0] ? commanderAbilities(deck.commanders[0]) : [],
     keyCards: keyCardObjs(deck, main, 3),
     stats: st,
     priceEur: deck.totalPriceEur,

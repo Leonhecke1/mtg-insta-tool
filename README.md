@@ -292,3 +292,17 @@ Ohne Piper bleiben Reels stumm.
 Hintergrund-Auftrag. Die Anfrage kommt sofort zurück (HTTP 202 mit `taskId`). Über der Tab-Leiste
 zeigt jede Seite Schritt und Fortschrittsbalken (`GET /api/tasks`). Seitenwechsel oder das Schließen
 der App brechen nichts ab. Fertige und fehlgeschlagene Aufträge melden sich zusätzlich per Push.
+
+### Stimme: Kokoro oder Piper
+
+```
+TTS_ENGINE=kokoro      # natürlichste kostenlose Option, läuft lokal auf der CPU
+TTS_VOICE=am_michael   # z. B. am_fenrir, am_puck, af_heart, bm_george
+TTS_SPEED=1
+KOKORO_DTYPE=q8        # q8 ≈ 90 MB; fp32 klingt minimal besser, ≈ 330 MB
+```
+
+[Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) (Apache-2.0) über `kokoro-js`.
+Das Modell wird beim ersten Reel einmalig von Hugging Face nach `DATA_DIR/models` geladen.
+Auf dem Server einmal `npm approve-scripts onnxruntime-node` ausführen. `TTS_ENGINE=piper` nutzt
+weiter `PIPER_BIN`/`PIPER_MODEL`, `none` schaltet die Stimme ab.

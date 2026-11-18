@@ -43,6 +43,13 @@ export const config = {
   // --- Voice-over fuer Reels (Piper, lokal und kostenlos) ---
   piperBin: optional("PIPER_BIN"),
   piperModel: optional("PIPER_MODEL"),
+  // "kokoro" (natuerlicher, laedt beim ersten Mal ~90 MB Modell von Hugging Face),
+  // "piper" (PIPER_BIN/PIPER_MODEL) oder "none". Leer = piper, falls konfiguriert.
+  ttsEngine: optional("TTS_ENGINE", ""),
+  // Kokoro-Stimmen z. B. am_michael, am_fenrir, am_puck, af_heart, bm_george
+  ttsVoice: optional("TTS_VOICE", "am_michael"),
+  ttsSpeed: parseFloat(optional("TTS_SPEED", "1")),
+  kokoroDtype: optional("KOKORO_DTYPE", "q8"),
 
   // --- Taeglicher Deck-Post (Entwuerfe aus Archidekt) ---
   dailyDecks: optional("DAILY_DECKS", "false") === "true",

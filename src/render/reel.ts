@@ -5,7 +5,9 @@ import { promisify } from "util";
 import puppeteer, { Browser } from "puppeteer";
 import { config } from "../config";
 import { Deck } from "../types";
-import { analyzeDeck, DeckAnalysis } from "../llm/fallback";
+import { analyzeDeck, cardRole, DeckAnalysis, shortName } from "../llm/fallback";
+
+const ENGINE_INTRO: Record<number, string> = { 1: "One card makes it work.", 2: "Two cards make it work.", 3: "Three cards make it work." };
 import { applyPronunciation } from "../settings/pronunciation";
 import { escapeHtml } from "./components";
 import { FONT_STACK, MANA_CIRCLE_COLORS } from "./theme";
@@ -76,13 +78,45 @@ function listJoin(items: string[]): string {
 }
 
 /** Text fuer TTS saeubern (Piper liest Sonderzeichen sonst seltsam vor) */
+const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+const SYMBOL_WORDS: Record<string, string> = {
+  T: "tap", Q: "untap", X: "X", C: "colorless", S: "snow", E: "energy",
+  W: "white", U: "blue", B: "black", R: "red", G: "green",
+};
+
+/** Ein Manasymbol als Wort: {2} -> "two", {W} -> "white", {W/U} -> "white or blue" */
+function symbolWord(sym: string): string {
+  const inner = sym.replace(/[{}]/g, "");
+  if (/^\d+$/.test(inner)) return NUMBER_WORDS[+inner] ?? inner;
+  if (inner.includes("/")) {
+    const [x, y] = inner.split("/");
+    if (y === "P") return SYMBOL_WORDS[x] ?? x; // phyrexanisch
+    return `${symbolWord(`{${x}}`)} or ${symbolWord(`{${y}}`)}`;
+  }
+  return SYMBOL_WORDS[inner] ?? inner;
+}
+
+/**
+ * Manakosten in Sprache: "{1}, Sacrifice an artifact: X" -> "Pay one, sacrifice
+ * an artifact: X", "{T}: Add {G}" -> "Tap: add green".
+ */
+function manaToWords(s: string): string {
+  return s
+    .replace(/(^|[.!]\s+)((?:\{[^}]+\})+)(?=[,:])/g, (_m, pre: string, cost: string) => {
+      const syms = cost.match(/\{[^}]+\}/g) ?? [];
+      const words = syms.map(symbolWord);
+      const onlyTap = words.length === 1 && (words[0] === "tap" || words[0] === "untap");
+      return pre + (onlyTap ? words[0].charAt(0).toUpperCase() + words[0].slice(1) : `Pay ${words.join(" ")}`);
+    })
+    .replace(/(?:\{[^}]+\})+/g, (cost) => (cost.match(/\{[^}]+\}/g) ?? []).map(symbolWord).join(" "));
+}
+
 function speakable(s: string): string {
   // Erst die eigenen Aussprache-Regeln (Einstellungen), dann aufraeumen
   return applyPronunciation(
-    s
+    manaToWords(s)
       .replace(/€\s?(\d+)/g, "$1 euros")
       .replace(/&/g, " and ")
-      .replace(/\{[^}]*\}/g, " ")
   )
     .replace(/[^\p{L}\p{N}\s.,!?'+-]/gu, " ")
     .replace(/\s+/g, " ")
@@ -102,7 +136,12 @@ export function reelScript(deck: Deck, hookOverride?: string): ReelScript {
   }
 
   const price = Math.round(a.priceEur);
-  const abilityShort = a.ability && a.ability.length <= 120 ? a.ability : null;
+  // Alle Faehigkeiten vorlesen, solange es nicht zu lang wird (~260 Zeichen)
+  const abilitiesSpoken: string[] = [];
+  for (const ab of a.abilities) {
+    if ([...abilitiesSpoken, ab].join(". ").length > 260 && abilitiesSpoken.length) break;
+    abilitiesSpoken.push(ab);
+  }
   const statParts = [
     a.stats.ramp ? `${a.stats.ramp} ramp` : null,
     a.stats.draw ? `${a.stats.draw} draw` : null,
@@ -113,8 +152,10 @@ export function reelScript(deck: Deck, hookOverride?: string): ReelScript {
     { kind: "hook", base: 2.6, say: hook },
     {
       kind: "commander",
-      base: 3.2,
-      say: abilityShort ? `Meet ${a.name}. ${abilityShort}.` : `Meet ${a.name}, ${a.combo} ${a.style}.`,
+      base: 4,
+      say: abilitiesSpoken.length
+        ? `Meet ${a.name}. ${abilitiesSpoken.join(". ")}.`
+        : `Meet ${a.name}, ${a.combo} ${a.style}.`,
     },
   ];
   // Spielplan: Schritte ohne Klammer-Zusaetze ("Ramp (6 sources)" -> "ramp")
@@ -127,8 +168,11 @@ export function reelScript(deck: Deck, hookOverride?: string): ReelScript {
   if (a.keyCards.length) {
     beats.push({
       kind: "engine",
-      base: 3.6,
-      say: `The engine: ${listJoin(a.keyCards.map((c) => c.name.split(" // ")[0]))}.`,
+      base: 5,
+      // Kurznamen ("Toxrill" statt "Toxrill, the Corrosive") und je ein Satz, was die Karte tut
+      say: `${ENGINE_INTRO[a.keyCards.length] ?? "These cards make it work."} ${a.keyCards
+        .map((c) => `${shortName(c.name.split(" // ")[0])} ${cardRole(c)}.`)
+        .join(" ")}`,
     });
   }
 
@@ -192,14 +236,20 @@ function beatHtml(b: TimedBeat, deck: Deck, s: ReelScript): string {
           <div class="eyebrow anim" data-d="0" data-y="-20">${escapeHtml(a.combo)} · ${escapeHtml(a.style)}</div>
           <h2 class="name anim" data-d="0.05" data-y="30">${escapeHtml(a.name)}</h2>
         </div>
-        <div class="stack" style="top:390px">
+        <div class="stack" style="top:370px">
           ${cardImg(cmd?.imageNormal ?? null, "card mid anim", 'data-d="0.1" data-x="260" data-r="8" data-s="0.9"')}
         </div>
         ${
-          a.ability
-            ? `<div class="stack" style="top:1150px"><p class="ability anim" data-d="0.55" data-y="40">${escapeHtml(
-                a.ability.length > 130 ? a.ability.slice(0, 127) + "…" : a.ability
-              )}</p></div>`
+          a.abilities.length
+            ? (() => {
+                // Je Faehigkeit eine Zeile, auf dem Bild hoechstens ~85 Zeichen
+                // (vorgelesen wird alles); bei viel Text kleinere Schrift
+                const cut = (t: string) => (t.length > 85 ? t.slice(0, 82).replace(/\s+\S*$/, "") + " …" : t);
+                let txt = a.abilities.slice(0, 2).map(cut).join("\n");
+                if (txt.length > 175) txt = txt.slice(0, 172) + "…";
+                const small = txt.length > 95 ? " small" : "";
+                return `<div class="stack" style="top:1040px"><p class="ability${small} anim" data-d="0.55" data-y="40">${escapeHtml(txt)}</p></div>`;
+              })()
             : ""
         }
       </section>`;
@@ -244,7 +294,7 @@ function beatHtml(b: TimedBeat, deck: Deck, s: ReelScript): string {
     }
     case "engine": {
       const rot = [-9, 0, 9];
-      const dx = [-205, 0, 205];
+      const dx = [-190, 0, 190];
       const cards = a.keyCards
         .map(
           (c, i) =>
@@ -259,6 +309,13 @@ function beatHtml(b: TimedBeat, deck: Deck, s: ReelScript): string {
           <h2 class="title anim" data-d="0.05" data-y="30">Key pieces</h2>
         </div>
         <div class="fanrow">${cards}</div>
+        <div class="roles">
+          ${a.keyCards
+            .map(
+              (c, i) => `<div class="role anim" data-d="${0.5 + i * 0.35}" data-y="30"><b>${escapeHtml(shortName(c.name.split(" // ")[0]))}</b> ${escapeHtml(cardRole(c))}</div>`
+            )
+            .join("")}
+        </div>
       </section>`;
     }
     case "stats": {
@@ -344,13 +401,17 @@ function pageHtml(deck: Deck, s: ReelScript, beats: TimedBeat[], total: number, 
   .card.hero { width: 690px; }
   .teaser { width: 900px; height: 660px; border-radius: 36px; overflow: hidden; box-shadow: 0 50px 120px rgba(0,0,0,.65); border: 6px solid rgba(255,255,255,.18); }
   .teaser img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.05); }
-  .card.mid { width: 520px; }
-  .card.small { width: 360px; }
+  .card.mid { width: 450px; }
+  .card.small { width: 320px; }
   .card.tiny { width: 300px; margin-bottom: 20px; }
-  .ability { margin: 0; font-size: 42px; line-height: 1.3; font-weight: 600; max-width: 900px;
+  .ability.small { font-size: 34px; }
+  .roles { position: absolute; left: 70px; right: 70px; top: 1120px; display: grid; gap: 12px; }
+  .role { font-size: 34px; line-height: 1.25; background: rgba(0,0,0,.5); border-radius: 18px; padding: 12px 22px; border-left: 6px solid ${accent}; }
+  .role b { font-weight: 900; }
+  .ability { margin: 0; font-size: 42px; line-height: 1.3; font-weight: 600; max-width: 900px; white-space: pre-line;
              background: rgba(0,0,0,.55); padding: 26px 34px; border-radius: 26px; border-left: 8px solid ${accent}; text-align: left; }
-  .fanrow { position: absolute; left: 0; right: 0; top: 640px; height: 700px; }
-  .fan { position: absolute; left: 50%; top: 40px; margin-left: -180px; }
+  .fanrow { position: absolute; left: 0; right: 0; top: 520px; height: 700px; }
+  .fan { position: absolute; left: 50%; top: 40px; margin-left: -160px; }
   .stats { position: absolute; left: 70px; right: 70px; top: 520px; display: grid; gap: 34px; }
   .stat { display: flex; align-items: baseline; gap: 34px; background: rgba(0,0,0,.45); border-radius: 30px; padding: 30px 46px; border: 2px solid rgba(255,255,255,.12); }
   .stat .num { font-size: 170px; font-weight: 900; line-height: 1; min-width: 260px; color: ${accent}; font-variant-numeric: tabular-nums; }
@@ -516,7 +577,7 @@ export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = 
   // 1. Voice-over je Szene (optional)
   const voices: ({ file: string; seconds: number } | null)[] = [];
   for (let i = 0; i < script.beats.length; i++) {
-    if (config.piperBin) report(`Reel: Sprachaufnahme ${i + 1}/${script.beats.length}`, (i / script.beats.length) * 0.08);
+    if (ttsEngine() !== "none") report(`Reel: Sprachaufnahme ${i + 1}/${script.beats.length}`, (i / script.beats.length) * 0.08);
     voices.push(await synthesizeVoice(speakable(script.beats[i].say), jobDir, `reel-voice-${i}.wav`));
   }
   const withVoice = voices.some(Boolean);
@@ -602,21 +663,54 @@ export function reelCoverPath(videoFile: string): string {
  * Text-to-Speech mit Piper (https://github.com/rhasspy/piper), laeuft lokal
  * und kostenlos. Ohne PIPER_BIN/PIPER_MODEL gibt es kein Voice-over.
  */
+/** Welche Sprachausgabe aktiv ist */
+export function ttsEngine(): "kokoro" | "piper" | "none" {
+  const e = config.ttsEngine.toLowerCase();
+  if (e === "kokoro" || e === "none") return e;
+  if (e === "piper" || (!e && config.piperBin && config.piperModel)) return config.piperBin ? "piper" : "none";
+  return "none";
+}
+
+// Kokoro-Modell nur einmal laden (dauert beim ersten Mal, danach im Speicher)
+let kokoroModel: Promise<any> | null = null;
+function loadKokoro(): Promise<any> {
+  if (!kokoroModel) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { KokoroTTS, env } = require("kokoro-js");
+    // Modell in DATA_DIR ablegen, damit "npm ci" es nicht loescht
+    env.cacheDir = path.join(config.dataDir, "models");
+    const loading: Promise<any> = KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
+      dtype: config.kokoroDtype,
+      device: "cpu",
+    });
+    loading.catch(() => (kokoroModel = null)); // naechster Versuch darf neu laden
+    kokoroModel = loading;
+  }
+  return kokoroModel;
+}
+
 async function synthesizeVoice(
   text: string,
   jobDir: string,
   fileName: string
 ): Promise<{ file: string; seconds: number } | null> {
-  if (!config.piperBin || !config.piperModel || !ffmpegPath || !text) return null;
+  const engine = ttsEngine();
+  if (engine === "none" || !ffmpegPath || !text) return null;
   const file = path.join(jobDir, fileName);
-  await new Promise<void>((resolve, reject) => {
-    const p = spawn(config.piperBin, ["--model", config.piperModel, "--output_file", file]);
-    let stderr = "";
-    p.stderr.on("data", (d) => (stderr += d));
-    p.on("error", reject);
-    p.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`piper exit ${code}: ${stderr.slice(-300)}`))));
-    p.stdin.end(text);
-  });
+  if (engine === "kokoro") {
+    const tts = await loadKokoro();
+    const audio = await tts.generate(text, { voice: config.ttsVoice, speed: config.ttsSpeed });
+    await audio.save(file);
+  } else {
+    await new Promise<void>((resolve, reject) => {
+      const p = spawn(config.piperBin, ["--model", config.piperModel, "--output_file", file]);
+      let stderr = "";
+      p.stderr.on("data", (d) => (stderr += d));
+      p.on("error", reject);
+      p.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`piper exit ${code}: ${stderr.slice(-300)}`))));
+      p.stdin.end(text);
+    });
+  }
   const probe = await run(ffmpegPath, ["-i", file], { maxBuffer: 8 * 1024 * 1024 }).catch(
     (e: { stderr?: string }) => ({ stderr: e.stderr ?? "" })
   );
