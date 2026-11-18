@@ -102,7 +102,7 @@ export async function generateTexts(deck: Deck, useLlm: boolean): Promise<Genera
   try {
     const message = await client.messages.create({
       model: config.anthropicModel,
-      max_tokens: 2048,
+      max_tokens: 16000, // inkl. Thinking (Haiku 5.5 denkt standardmaessig)
       messages: [{ role: "user", content: buildPrompt(deck) }],
     });
 

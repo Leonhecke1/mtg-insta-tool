@@ -8,6 +8,7 @@ import { fetchArchidektDeck } from "../parser/archidekt";
 import { runPipeline } from "../pipeline";
 import { createJob, listJobs, updateJob } from "../jobs/jobStore";
 import { ensureJpegs } from "../render/renderer";
+import { buildNewPostStory } from "../render/reel";
 import { addItem, listItems } from "../queue/queueStore";
 import { Job } from "../types";
 
@@ -204,63 +205,98 @@ function localDayKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
+function postTimeForOffset(offset: number): Date {
+  const when = new Date();
+  when.setDate(when.getDate() + offset);
+  when.setHours(config.dailyPostHour, 0, 0, 0);
+  return when;
+}
+
+function isDayTaken(when: Date): boolean {
+  return listItems().some(
+    (i) =>
+      (i.kind === "carousel" || i.kind === "reel") &&
+      i.status !== "rejected" &&
+      localDayKey(new Date(i.scheduledAt)) === localDayKey(when)
+  );
+}
+
+/** Erzeugt Carousel- (+ Story-)Entwurf fuer einen Tag. null = kein passendes Deck. */
+async function draftForDay(when: Date): Promise<string | null> {
+  const produced = await produceDeckTech();
+  if (!produced) {
+    console.warn(`[daily] no suitable deck found for ${localDayKey(when)}`);
+    return null;
+  }
+  const { job } = produced;
+  const r = job.result!;
+  const jpgs = await ensureJpegs(r.slideFiles.slice(0, 10));
+  const label = r.deckSummary?.commander ?? job.id;
+
+  addItem({
+    id: nanoid(10),
+    kind: "carousel",
+    status: "draft",
+    createdAt: new Date().toISOString(),
+    scheduledAt: when.toISOString(),
+    mediaToken: nanoid(24),
+    mediaFiles: jpgs,
+    caption: r.caption,
+    sourceJobId: job.id,
+    label,
+  });
+
+  if (config.dailyStory) {
+    addItem({
+      id: nanoid(10),
+      kind: "story",
+      status: "draft",
+      createdAt: new Date().toISOString(),
+      scheduledAt: new Date(when.getTime() + 60 * 60_000).toISOString(),
+      mediaToken: nanoid(24),
+      mediaFiles: [await buildNewPostStory(r.deck, r.slideFiles[0], r.jobDir)],
+      sourceJobId: job.id,
+      label: `${label} (Story)`,
+    });
+  }
+  console.log(`[daily] drafted ${label} for ${when.toISOString()}`);
+  return label;
+}
+
+// Serialisiert Scheduler-Lauf und Button-Klicks, damit nie zwei Decks
+// gleichzeitig fuer denselben Tag gerendert werden.
+let chain: Promise<unknown> = Promise.resolve();
+function serialized<T>(fn: () => Promise<T>): Promise<T> {
+  const next = chain.then(fn, fn);
+  chain = next.catch(() => undefined);
+  return next;
+}
+
 /**
  * Sorgt dafuer, dass fuer jeden der naechsten N Tage ein Deck-Post-Entwurf
  * existiert. Wird ein Entwurf abgelehnt, entsteht beim naechsten Lauf ein
  * neuer fuer diesen Tag ("ablehnen" = "gib mir ein anderes Deck").
  */
-export async function ensureDailyDrafts(): Promise<void> {
-  const items = listItems();
-  for (let offset = 1; offset <= config.dailyLookaheadDays; offset++) {
-    const when = new Date();
-    when.setDate(when.getDate() + offset);
-    when.setHours(config.dailyPostHour, 0, 0, 0);
-
-    const taken = items.some(
-      (i) =>
-        (i.kind === "carousel" || i.kind === "reel") &&
-        i.status !== "rejected" &&
-        localDayKey(new Date(i.scheduledAt)) === localDayKey(when)
-    );
-    if (taken) continue;
-
-    const produced = await produceDeckTech();
-    if (!produced) {
-      console.warn(`[daily] no suitable deck found for ${localDayKey(when)}`);
-      return;
+export function ensureDailyDrafts(): Promise<void> {
+  return serialized(async () => {
+    for (let offset = 1; offset <= config.dailyLookaheadDays; offset++) {
+      const when = postTimeForOffset(offset);
+      if (isDayTaken(when)) continue;
+      if (!(await draftForDay(when))) return;
     }
-    const { job } = produced;
-    const r = job.result!;
-    const jpgs = await ensureJpegs(r.slideFiles.slice(0, 10));
-    const label = r.deckSummary?.commander;
+  });
+}
 
-    addItem({
-      id: nanoid(10),
-      kind: "carousel",
-      status: "draft",
-      createdAt: new Date().toISOString(),
-      scheduledAt: when.toISOString(),
-      mediaToken: nanoid(24),
-      mediaFiles: jpgs,
-      caption: r.caption,
-      sourceJobId: job.id,
-      label,
-    });
-
-    if (config.dailyStory) {
-      const storyAt = new Date(when.getTime() + 60 * 60_000);
-      addItem({
-        id: nanoid(10),
-        kind: "story",
-        status: "draft",
-        createdAt: new Date().toISOString(),
-        scheduledAt: storyAt.toISOString(),
-        mediaToken: nanoid(24),
-        mediaFiles: [jpgs[0]],
-        sourceJobId: job.id,
-        label: `${label} (Story)`,
-      });
+/** Button "Neues Deck holen": Entwurf fuer den naechsten freien Tag. */
+export function fetchNextDeck(): Promise<{ label: string; scheduledAt: string }> {
+  return serialized(async () => {
+    for (let offset = 1; offset <= 60; offset++) {
+      const when = postTimeForOffset(offset);
+      if (isDayTaken(when)) continue;
+      const label = await draftForDay(when);
+      if (!label) throw new Error("Kein passendes Deck gefunden, später nochmal versuchen");
+      return { label, scheduledAt: when.toISOString() };
     }
-    console.log(`[daily] drafted ${label} for ${when.toISOString()}`);
-  }
+    throw new Error("Die nächsten 60 Tage sind schon verplant");
+  });
 }

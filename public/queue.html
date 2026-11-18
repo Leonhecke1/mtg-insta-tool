@@ -33,6 +33,8 @@
 <div class="wrap">
   <div class="bar">
     <button class="primary" id="approveAll">Alle Entwürfe freigeben</button>
+    <button id="fetchDeck">Neues Deck holen</button>
+    <span id="fetchMsg" class="meta"></span>
     <label><input type="checkbox" id="showDone" /> Erledigte anzeigen</label>
   </div>
 
@@ -87,7 +89,7 @@ function render(it) {
   const isReply = it.kind === "comment_reply";
   el.innerHTML = `
     <h3>${esc(KIND[it.kind])} · ${esc(it.label || "")}<span class="pill ${it.status}">${esc(STATUS[it.status])}</span></h3>
-    <div class="meta">${isReply ? "" : "Geplant: " + new Date(it.scheduledAt).toLocaleString("de-DE")}</div>
+    <div class="meta">${isReply ? (it.status === "approved" ? "Automatisch freigegeben, geht raus: " + new Date(it.scheduledAt).toLocaleTimeString("de-DE") : "") : "Geplant: " + new Date(it.scheduledAt).toLocaleString("de-DE")}</div>
     ${it.previewUrls.length ? `<div class="thumbs">${it.previewUrls.map((u) => u.endsWith(".mp4") ? `<video src="${u}" controls preload="metadata" style="height:320px"></video>` : `<img src="${u}" loading="lazy">`).join("")}</div>` : ""}
     ${isReply ? `<div class="quote"><b>@${esc(it.commentUsername)}:</b> ${esc(it.commentText)}</div>` : ""}
     ${it.kind === "story" ? "" : `<textarea ${editable ? "" : "disabled"}>${esc(isReply ? it.replyText : it.caption)}</textarea>`}
@@ -129,6 +131,21 @@ document.getElementById("approveAll").onclick = async () => {
   load();
 };
 document.getElementById("showDone").onchange = load;
+document.getElementById("fetchDeck").onclick = async () => {
+  const btn = document.getElementById("fetchDeck");
+  const msg = document.getElementById("fetchMsg");
+  btn.disabled = true;
+  msg.textContent = "Suche und rendere Deck … (bis zu 2 Minuten)";
+  try {
+    const r = await api("POST", "/api/queue/fetch-deck");
+    msg.textContent = r.label + " für " + new Date(r.scheduledAt).toLocaleDateString("de-DE") + " angelegt.";
+    load();
+  } catch (err) {
+    msg.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 (async () => {
   const jobs = await api("GET", "/api/jobs");

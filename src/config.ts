@@ -14,7 +14,7 @@ export const config = {
   basicAuthPass: optional("BASIC_AUTH_PASS"),
 
   anthropicApiKey: optional("ANTHROPIC_API_KEY"),
-  anthropicModel: optional("ANTHROPIC_MODEL", "claude-sonnet-5"),
+  anthropicModel: optional("ANTHROPIC_MODEL", "claude-haiku-5-5"),
 
   dataDir: path.resolve(optional("DATA_DIR", "./data")),
   outDir: path.resolve(optional("OUT_DIR", "./out")),
@@ -24,11 +24,25 @@ export const config = {
   igAccessToken: optional("IG_ACCESS_TOKEN"),
   // Version gegen die aktuelle Meta-Doku pruefen (siehe SPEC.md)
   igApiVersion: optional("IG_API_VERSION", "v23.0"),
+  // graph.facebook.com fuer Systemnutzer-Tokens ("API setup with Unified login",
+  // laufen nie ab), graph.instagram.com fuer Tokens aus "Instagram Login"
+  // (laufen nach 60 Tagen ab und werden automatisch verlaengert)
+  igGraphHost: optional("IG_GRAPH_HOST", "graph.facebook.com"),
   // Oeffentliche Basis-URL des Servers (ohne Slash am Ende). Instagram laedt
   // die Bilder von <PUBLIC_BASE_URL>/media/<token>/<n>.jpg.
   publicBaseUrl: optional("PUBLIC_BASE_URL").replace(/\/+$/, ""),
   schedulerIntervalSec: parseInt(optional("SCHEDULER_INTERVAL_SEC", "60"), 10),
   commentPollMinutes: parseInt(optional("COMMENT_POLL_MINUTES", "15"), 10),
+  // Antworten auf Kommentare unter eigenen Posts automatisch freigeben
+  // (nach einer Wartezeit, in der man in /queue.html noch ablehnen kann)
+  autoReply: optional("AUTO_REPLY", "false") === "true",
+  autoReplyDelayMin: parseInt(optional("AUTO_REPLY_DELAY_MIN", "10"), 10),
+  // Kommentare, die das LLM als Spam/Bot erkennt, automatisch ausblenden
+  autoHideSpam: optional("AUTO_HIDE_SPAM", "true") === "true",
+
+  // --- Voice-over fuer Reels (Piper, lokal und kostenlos) ---
+  piperBin: optional("PIPER_BIN"),
+  piperModel: optional("PIPER_MODEL"),
 
   // --- Taeglicher Deck-Post (Entwuerfe aus Archidekt) ---
   dailyDecks: optional("DAILY_DECKS", "false") === "true",

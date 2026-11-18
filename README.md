@@ -177,7 +177,8 @@ Antwort-Entwürfe auf neue Kommentare unter eigenen Posts an.
 
 ```
 IG_USER_ID=...            # Instagram-Professional-Account-ID
-IG_ACCESS_TOKEN=...       # Long-lived Token ("Instagram API with Instagram Login"), läuft nach 60 Tagen ab
+IG_ACCESS_TOKEN=...       # Systemnutzer-Token aus "API setup with Unified login" (läuft nie ab)
+IG_GRAPH_HOST=graph.facebook.com   # graph.instagram.com nur für Instagram-Login-Tokens (60 Tage, Auto-Refresh)
 IG_API_VERSION=v23.0      # gegen aktuelle Meta-Doku prüfen
 PUBLIC_BASE_URL=https://dein-server.de   # öffentlich erreichbar, Instagram lädt /media/<token>/<n>.jpg
 SCHEDULER_INTERVAL_SEC=60
@@ -223,3 +224,35 @@ ARCHIDEKT_OWN_USERNAME=floating.mana
 ```
 
 Mit `ANTHROPIC_API_KEY` schreibt das LLM Tagline, Gameplan und Caption, ohne Key gibt es nur Platzhaltertexte.
+
+### Automatische Interaktion
+
+```
+AUTO_REPLY=true            # Antworten auf Kommentare (< 48 h alt) automatisch freigeben
+AUTO_REPLY_DELAY_MIN=10    # Wartezeit, in der man in /queue.html noch ablehnen/ändern kann
+AUTO_HIDE_SPAM=true        # vom LLM als Spam/Bot erkannte Kommentare ausblenden
+```
+
+Benötigt `ANTHROPIC_API_KEY`. Kommentare, die älter als 7 Tage sind, werden ignoriert.
+Liken, Kommentieren und Folgen bei fremden Accounts wird bewusst nicht automatisiert,
+weil die API das nicht anbietet und Bots dafür gesperrt werden.
+
+Die tägliche Story ist eine „NEW POST“-Grafik mit dem Cover. Beiträge teilen und
+Link-Sticker kann die API nicht.
+
+## Komplett ohne Kosten
+
+Ohne `ANTHROPIC_API_KEY` läuft alles kostenlos:
+
+- **Texte:** Vorlagen aus den Kartendaten (`src/llm/fallback.ts`). Sie erkennen Archetyp,
+  Tribal, Schlüsselkarten, Ramp/Draw/Removal und die Commander-Fähigkeit.
+- **Spam:** Regeln in `src/queue/spam.ts`, z. B. „send me this post“ oder „promote it on @“.
+  Treffer werden ausgeblendet. Antwortentwürfe gibt es ohne Key nicht.
+- **Voice-over für Reels:** [Piper](https://github.com/rhasspy/piper) lokal auf dem Server.
+
+```
+PIPER_BIN=/opt/piper/piper
+PIPER_MODEL=/opt/piper/en_US-ryan-medium.onnx   # Voice: .onnx + .onnx.json im selben Ordner
+```
+
+Ohne Piper bleiben Reels stumm.
