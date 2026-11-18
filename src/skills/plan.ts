@@ -126,6 +126,7 @@ export function carouselDraftsOnReelDays(schedule = getSettings().schedule) {
   return listItems().filter(
     (i) =>
       i.kind === "carousel" &&
+      i.origin !== "news" &&
       i.status === "draft" &&
       i.sourceJobId &&
       new Date(i.scheduledAt).getTime() > Date.now() &&

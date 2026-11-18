@@ -324,3 +324,19 @@ Die `DAILY_*`-Werte aus der `.env` gelten nur bis zum ersten Speichern.
 **Plan-Check (/ig-plan)** im Plan-Tab: bewertet den Wochenplan (mindestens 3 Reels pro Woche,
 Frequenz, Postzeiten, eigene Zahlen Reel gegen Carousel). „Übernehmen“ setzt die Empfehlung um
 (Reel-Fokus: Mo–Sa Reel, So Carousel), „In Reels umwandeln“ baut Carousel-Entwürfe an Reel-Tagen um.
+
+## News
+
+Tab **News**: offizielle MTG-News von Scryfall, alle 6 Stunden abgerufen (einstellbar unter
+Optionen → News) oder per „Jetzt nach News suchen“.
+
+- **Spoiler:** Neue Karten aus kommenden oder gerade erschienenen Sets und aus Secret Lair Drops
+  der letzten 30 Tage. Ab 3 neuen Karten eines Sets (einstellbar, spätestens nach 24 h) entsteht
+  automatisch ein **Spoiler-Carousel**: Cover mit Spoiler-Warnung, danach die Karten.
+- **Bann- und Game-Changer-Änderungen** für Commander werden automatisch zum Einzelbild-Entwurf.
+- **Neue Commander** erscheinen zusätzlich einzeln im Feed.
+- **Eigene News:** Kartennamen (eine pro Zeile) oder eine Scryfall-Suche (`set:nau`) eingeben, dann
+  wird daraus ein Spoiler-Carousel, ein Einzelbild oder eine Story.
+
+News-Entwürfe kommen **zusätzlich** zum Wochenplan und blockieren keinen Tag. Keine Leaks: Scryfall
+zeigt nur offiziell gespoilerte Karten.

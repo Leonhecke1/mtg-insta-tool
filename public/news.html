@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#F4EFE4" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="floating.mana" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<title>News · floating.mana</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  header.top { position: sticky; top: 0; z-index: 10; background: #F4EFE4; padding: calc(10px + env(safe-area-inset-top)) 16px 10px; border-bottom: 1px solid #E2D9C6; }
+  header.top h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  header.top .sub { font-size: 13px; color: #7A7263; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 12px 16px 24px; }
+  .card { background: #fff; border: 1px solid #E2D9C6; border-radius: 16px; padding: 14px; margin-bottom: 12px; }
+  .card h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+  .muted { color: #7A7263; font-size: 13px; }
+  button { font: inherit; font-size: 15px; min-height: 44px; padding: 8px 14px; border-radius: 12px; border: 1px solid #1F1D18; background: #fff; color: #1F1D18; }
+  button.primary { background: #1F1D18; color: #F4EFE4; }
+  button:disabled { opacity: .5; }
+  textarea, input, select { font: inherit; font-size: 16px; width: 100%; padding: 10px; border: 1px solid #D5CBB5; border-radius: 10px; background: #fff; }
+  textarea { min-height: 90px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; margin: 4px 0 12px; }
+  .chips button { min-height: 36px; padding: 4px 12px; border-radius: 99px; border-color: #E2D9C6; font-size: 14px; white-space: nowrap; }
+  .chips button.on { background: #1F1D18; color: #F4EFE4; border-color: #1F1D18; }
+  .item { display: flex; gap: 12px; }
+  .item img { width: 76px; border-radius: 6px; flex: none; align-self: flex-start; }
+  .item .t { flex: 1; min-width: 0; }
+  .item b { display: block; font-size: 15px; }
+  .type { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: #7A7263; }
+  .type.spoiler { color: #E2463A; } .type.ban { color: #A23B2A; } .type.unban { color: #2F6B3A; }
+  .thumbs { display: flex; gap: 4px; overflow-x: auto; margin-top: 6px; }
+  .thumbs img { width: 52px; border-radius: 4px; }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .acts button, .acts a { min-height: 38px; font-size: 14px; padding: 6px 10px; }
+  .acts a { display: inline-flex; align-items: center; color: #7A7263; }
+  .done { font-size: 13px; color: #2F6B3A; margin-top: 6px; }
+</style>
+</head>
+<body>
+<header class="top"><h1>News</h1><div class="sub" id="sub">Offizielle Spoiler, neue Commander, Bann- und Game-Changer-Änderungen</div></header>
+<div class="wrap">
+  <div class="card">
+    <div class="row2" style="margin-top:0">
+      <button class="primary" id="refresh">Jetzt nach News suchen</button>
+      <button id="toggleCustom">Eigene News erstellen</button>
+    </div>
+    <div class="muted" id="msg" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card" id="custom" hidden>
+    <h2>Eigene News</h2>
+    <div class="muted">Kartennamen, eine pro Zeile, oder eine Scryfall-Suche wie <code>set:nau</code> oder <code>e:sld date&gt;=2026-11-01</code>.</div>
+    <textarea id="c_cards" placeholder="Doubling Season&#10;Sol Ring" autocapitalize="off" style="margin-top:8px"></textarea>
+    <input id="c_title" placeholder="Überschrift (optional), z. B. Secret Lair: Spooky Edition" style="margin-top:8px" />
+    <div class="row2">
+      <select id="c_format">
+        <option value="auto">Automatisch (mehrere Karten = Spoiler-Carousel)</option>
+        <option value="post">Einzelbild</option>
+        <option value="story">Story</option>
+      </select>
+      <button class="primary" id="c_go">Entwurf erstellen</button>
+    </div>
+  </div>
+
+  <div class="chips" id="chips"></div>
+  <div id="list"></div>
+</div>
+<script src="/nav.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const TYPES = { all: "Alle", spoiler: "Spoiler", commander: "Commander", ban: "Bann", gamechanger: "Game Changer", article: "Artikel" };
+const LABEL = { spoiler: "Spoiler", commander: "Neuer Commander", ban: "Gebannt", unban: "Entbannt", gamechanger: "Game Changer", gamechanger_removed: "Kein Game Changer mehr", article: "News" };
+let filter = "all";
+let data = { items: [] };
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 401) { location.href = "/login.html?next=/news.html"; throw new Error("login"); }
+  if (!r.ok) throw new Error(d.error || r.status);
+  return d;
+}
+
+function render() {
+  $("chips").innerHTML = Object.entries(TYPES).map(([k, v]) => `<button class="${k === filter ? "on" : ""}" data-f="${k}">${v}</button>`).join("");
+  const items = data.items.filter((i) => filter === "all" || i.type === filter || (filter === "ban" && i.type === "unban") || (filter === "gamechanger" && i.type.startsWith("gamechanger")));
+  $("list").innerHTML = items.length ? items.map((i) => `
+    <div class="card item">
+      ${i.image ? `<img src="${esc(i.image)}" alt="" loading="lazy">` : ""}
+      <div class="t">
+        <div class="type ${i.type}">${LABEL[i.type] || i.type}${i.setName ? " · " + esc(i.setName) : ""}</div>
+        <b>${esc(i.title)}</b>
+        <div class="muted">${new Date(i.date).toLocaleDateString("de-DE")}${i.releasedAt ? " · Release " + new Date(i.releasedAt + "T12:00").toLocaleDateString("de-DE") : ""}</div>
+        ${i.cards && i.cards.length > 1 ? `<div class="thumbs">${i.cards.slice(0, 12).map((c) => `<img src="${esc(c.image)}" alt="" loading="lazy">`).join("")}</div>` : ""}
+        ${i.drafted ? `<div class="done">Entwurf erstellt, siehe Freigabe</div>` : ""}
+        <div class="acts">
+          <button data-draft="${i.id}" data-format="auto">${i.type === "spoiler" ? "Als Spoiler-Carousel" : "Als Post"}</button>
+          <button data-draft="${i.id}" data-format="story">Als Story</button>
+          ${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">Quelle</a>` : ""}
+        </div>
+      </div>
+    </div>`).join("") : `<div class="card muted">Noch keine News. „Jetzt nach News suchen“ tippen.</div>`;
+}
+
+async function load() {
+  data = await api("GET", "/api/news");
+  $("sub").textContent = data.lastPoll ? `Zuletzt geprüft: ${new Date(data.lastPoll).toLocaleString("de-DE")}` : "Noch nicht geprüft";
+  render();
+}
+
+$("chips").addEventListener("click", (e) => { if (e.target.dataset.f) { filter = e.target.dataset.f; render(); } });
+$("list").addEventListener("click", async (e) => {
+  const id = e.target.dataset.draft;
+  if (!id) return;
+  e.target.disabled = true; e.target.textContent = "Läuft …";
+  try { await api("POST", `/api/news/${id}/draft`, { format: e.target.dataset.format }); window.trackTasks && window.trackTasks(); }
+  catch (err) { e.target.textContent = err.message; }
+});
+$("refresh").onclick = async () => {
+  $("refresh").disabled = true;
+  try { await api("POST", "/api/news/refresh"); $("msg").textContent = "Suche läuft, Fortschritt unten."; window.trackTasks && window.trackTasks(); }
+  catch (err) { $("msg").textContent = err.message; }
+  setTimeout(() => ($("refresh").disabled = false), 3000);
+};
+$("toggleCustom").onclick = () => { $("custom").hidden = !$("custom").hidden; if (!$("custom").hidden) $("c_cards").focus(); };
+$("c_go").onclick = async () => {
+  $("c_go").disabled = true;
+  try {
+    await api("POST", "/api/news/custom", { cards: $("c_cards").value, title: $("c_title").value, format: $("c_format").value });
+    $("msg").textContent = "Entwurf wird erstellt, Fortschritt unten.";
+    $("c_cards").value = ""; $("c_title").value = "";
+    window.trackTasks && window.trackTasks();
+  } catch (err) { $("msg").textContent = err.message; }
+  setTimeout(() => ($("c_go").disabled = false), 1500);
+};
+window.addEventListener("tasks-done", load);
+load();
+</script>
+</body>
+</html>

@@ -25,6 +25,8 @@ import { humanize } from "./skills/human";
 import { analyzeProfile, saveAnswers } from "./skills/profile";
 import { carouselDraftsOnReelDays, checkPlan } from "./skills/plan";
 import { getSettings, saveSettings } from "./settings/appSettings";
+import { customNews, getNews, listNews, markDrafted, NewsItem, pollNews, setAutoDrafter } from "./news/news";
+import { newsCaption, renderNewsGraphic, renderSpoilerCarousel } from "./render/news";
 import { applyPronunciation, DEFAULT_RULES, getRules, saveRules } from "./settings/pronunciation";
 import * as fs from "fs";
 import { authEnabled, handleLogin, handleLogout, requireAuth } from "./auth";
@@ -417,6 +419,83 @@ app.put("/api/profile/answers", (req, res) => {
 
 app.get("/api/plan/info", (_req, res) => {
   res.json({ ...planInfo(), instagram: instagramConfigured() });
+});
+
+// --- MTG-News ---
+app.get("/api/news", (_req, res) => {
+  const { items, lastPoll } = listNews();
+  res.json({ items: items.slice(0, 150), lastPoll });
+});
+app.post("/api/news/refresh", (_req, res) => {
+  const task = startTask("News abrufen", async (report) => {
+    report("Frage Scryfall und Feeds ab", null as unknown as number);
+    return { fresh: await pollNews() };
+  });
+  res.status(202).json({ taskId: task.id });
+});
+/** Aus einer Meldung einen Entwurf machen (Feed-Bild oder Story) */
+type NewsFormat = "auto" | "post" | "story";
+
+/**
+ * Entwurf aus einer Meldung: Spoiler-Pakete werden ein Carousel (Cover mit
+ * Spoiler-Warnung), alles andere ein Einzelbild oder eine Story. News-Entwuerfe
+ * sind zusaetzlich (origin "news") und blockieren keinen Tag im Wochenplan.
+ */
+async function draftNewsItem(item: NewsItem, format: NewsFormat, report: (s: string, p?: number) => void = () => undefined) {
+  // in 2 Stunden (volle Stunde), damit Zeit zum Freigeben bleibt; "Jetzt posten" geht immer
+  const when = new Date(Date.now() + 2 * 3600_000);
+  when.setMinutes(0, 0, 0);
+  const asCarousel = format === "auto" ? item.type === "spoiler" && (item.cards?.length ?? 0) > 0 : false;
+  report("Erzeuge Grafik", 0.3);
+  const files = asCarousel
+    ? await renderSpoilerCarousel(item)
+    : [await renderNewsGraphic(item, format === "story" ? "story" : "post")];
+  const cap = format === "story" ? null : newsCaption(item);
+  addItem({
+    id: nanoid(10),
+    kind: format === "story" ? "story" : files.length > 1 ? "carousel" : "image",
+    status: "draft",
+    origin: "news",
+    createdAt: new Date().toISOString(),
+    scheduledAt: when.toISOString(),
+    mediaToken: nanoid(24),
+    mediaFiles: files,
+    caption: cap?.caption,
+    firstComment: cap?.firstComment,
+    keywords: cap?.keywords,
+    label: item.title,
+  });
+  markDrafted(item.id);
+  return { label: item.title };
+}
+// Automatische Entwuerfe nach dem News-Abruf
+setAutoDrafter((item) => draftNewsItem(item, "auto").then((r) => notify({ title: "News-Entwurf", body: `${r.label} wartet auf Freigabe.`, tag: `news-${item.id}` })));
+
+app.post("/api/news/:id/draft", (req, res) => {
+  const item = getNews(req.params.id);
+  if (!item) return res.status(404).json({ error: "not found" });
+  const format: NewsFormat = ["auto", "post", "story"].includes(req.body?.format) ? req.body.format : "auto";
+  const task = startTask(`News: ${item.cardName ?? item.title}`, (report) => draftNewsItem(item, format, report), {
+    notifyOnDone: (r) => `${r.label} wartet auf Freigabe.`,
+  });
+  res.status(202).json({ taskId: task.id });
+});
+
+/**
+ * Eigene News: Kartennamen (eine pro Zeile) oder eine Scryfall-Suche ("set:nau",
+ * "e:sld date>=2026-11-01") -> Spoiler-Carousel, Einzelbild oder Story.
+ */
+app.post("/api/news/custom", (req, res) => {
+  const input = String(req.body?.cards ?? "").trim();
+  const title = String(req.body?.title ?? "").trim().slice(0, 120);
+  const format: NewsFormat = ["auto", "post", "story"].includes(req.body?.format) ? req.body.format : "auto";
+  if (!input) return res.status(400).json({ error: "Bitte Kartennamen oder eine Scryfall-Suche angeben" });
+  const task = startTask(`Eigene News${title ? `: ${title}` : ""}`, async (report) => {
+    report("Suche Karten auf Scryfall", 0.1);
+    const item = await customNews(input, title);
+    return draftNewsItem(item, format, report);
+  }, { notifyOnDone: (r) => `${r.label} wartet auf Freigabe.` });
+  res.status(202).json({ taskId: task.id });
 });
 
 // --- Einstellungen aus der App (Automatik, Wochenplan ...) ---

@@ -270,6 +270,7 @@ function isDayTaken(when: Date): boolean {
   return listItems().some(
     (i) =>
       (i.kind === "carousel" || i.kind === "reel") &&
+      i.origin !== "news" && // News sind zusaetzlich
       i.status !== "rejected" &&
       localDayKey(new Date(i.scheduledAt)) === localDayKey(when)
   );

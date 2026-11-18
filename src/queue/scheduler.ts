@@ -14,6 +14,7 @@ import { draftReply } from "../llm/replyDrafter";
 import { refreshTokenIfDue } from "../instagram/token";
 import { isSpamComment } from "./spam";
 import { getSettings } from "../settings/appSettings";
+import { pollNews } from "../news/news";
 import { notify } from "../push/push";
 import { ensureDailyDrafts, invalidateInstagramHistory } from "../sourcing/dailyDeck";
 import { nanoid } from "nanoid";
@@ -185,6 +186,23 @@ async function pollComments(): Promise<void> {
 
 let lastTokenCheck = 0;
 let lastDailyCheck = 0;
+let lastNewsPoll = 0;
+let newsRunning = false;
+
+/** MTG-News regelmaessig abrufen (Intervall in den Einstellungen, Standard 6 h) */
+async function newsTick(): Promise<void> {
+  if (!getSettings().newsEnabled || newsRunning || Date.now() - lastNewsPoll < getSettings().newsIntervalHours * 3600_000) return;
+  newsRunning = true;
+  lastNewsPoll = Date.now();
+  try {
+    const n = await pollNews();
+    if (n) console.log(`[news] ${n} new item(s)`);
+  } catch (err) {
+    console.error("[news]", err instanceof Error ? err.message : err);
+  } finally {
+    newsRunning = false;
+  }
+}
 
 async function tick(): Promise<void> {
   if (running) return;
@@ -244,7 +262,9 @@ export function startScheduler(): void {
   setInterval(() => {
     void tick();
     void dailyTick();
+    void newsTick();
   }, config.schedulerIntervalSec * 1000);
   void tick();
   void dailyTick();
+  void newsTick();
 }

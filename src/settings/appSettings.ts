@@ -34,6 +34,17 @@ export interface AppSettings {
   autoHideSpam: boolean;
   /** "short" ~15 s (Hook, Commander, Schluesselkarten, Preis, CTA), "full" ~24 s mit allen Szenen */
   reelLength: "short" | "full";
+  /** MTG-News (Scryfall: neue Commander, Bann-/Game-Changer-Aenderungen) */
+  newsEnabled: boolean;
+  newsPush: boolean;
+  /** Zusaetzliche RSS/Atom-Feeds */
+  newsFeeds: string[];
+  /** Alle wie viele Stunden nach News schauen */
+  newsIntervalHours: number;
+  /** Aus Spoilern und Listen-Aenderungen automatisch Entwuerfe anlegen */
+  newsAutoDraft: boolean;
+  /** Ab so vielen neuen Karten eines Sets entsteht ein Spoiler-Carousel */
+  spoilerMin: number;
 }
 
 function envDefaults(): AppSettings {
@@ -54,6 +65,12 @@ function envDefaults(): AppSettings {
     autoReplyDelayMin: config.autoReplyDelayMin,
     autoHideSpam: config.autoHideSpam,
     reelLength: "full",
+    newsEnabled: true,
+    newsPush: true,
+    newsFeeds: [],
+    newsIntervalHours: 6,
+    newsAutoDraft: true,
+    spoilerMin: 3,
   };
 }
 
@@ -97,6 +114,14 @@ function sanitize(s: Partial<AppSettings>): AppSettings {
     autoReplyDelayMin: clampInt(s.autoReplyDelayMin, 1, 240, d.autoReplyDelayMin),
     autoHideSpam: typeof s.autoHideSpam === "boolean" ? s.autoHideSpam : d.autoHideSpam,
     reelLength: s.reelLength === "full" || s.reelLength === "short" ? s.reelLength : d.reelLength,
+    newsEnabled: typeof s.newsEnabled === "boolean" ? s.newsEnabled : d.newsEnabled,
+    newsPush: typeof s.newsPush === "boolean" ? s.newsPush : d.newsPush,
+    newsFeeds: Array.isArray(s.newsFeeds)
+      ? s.newsFeeds.map((u) => String(u).trim()).filter((u) => /^https?:\/\/\S+$/.test(u)).slice(0, 20)
+      : d.newsFeeds,
+    newsIntervalHours: clampInt(s.newsIntervalHours, 1, 48, d.newsIntervalHours),
+    newsAutoDraft: typeof s.newsAutoDraft === "boolean" ? s.newsAutoDraft : d.newsAutoDraft,
+    spoilerMin: clampInt(s.spoilerMin, 1, 30, d.spoilerMin),
   };
 }
 

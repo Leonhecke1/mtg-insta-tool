@@ -62,6 +62,15 @@
     <label class="sw"><input type="checkbox" id="s_story"> Story-Grafik nach jedem Post <span class="hint">(nicht klickbar, Repost selbst ist besser)</span></label>
     <label class="sw"><input type="checkbox" id="s_autoHideSpam"> Spam-Kommentare automatisch ausblenden</label>
     <label class="sw"><input type="checkbox" id="s_autoReply"> Antworten auf Kommentare automatisch freigeben <span class="hint">(nur mit KI-Key)</span></label>
+    <h2 style="margin-top:16px">News</h2>
+    <label class="sw"><input type="checkbox" id="s_newsEnabled"> Regelmäßig nach News suchen</label>
+    <div class="grid2">
+      <label>Alle … Stunden<input type="number" id="s_newsIntervalHours" min="1" max="48"></label>
+      <label>Spoiler-Carousel ab … Karten<input type="number" id="s_spoilerMin" min="1" max="30"></label>
+    </div>
+    <label class="sw"><input type="checkbox" id="s_newsAutoDraft"> Spoiler & Bann-Änderungen automatisch als Entwurf</label>
+    <label class="sw"><input type="checkbox" id="s_newsPush"> Benachrichtigung bei News</label>
+    <div class="grid2"><label class="full">Weitere RSS-Feeds (einer pro Zeile)<textarea id="s_newsFeeds" rows="3" style="font:inherit;font-size:15px;width:100%;padding:9px 10px;border:1px solid #D5CBB5;border-radius:10px"></textarea></label></div>
     <div class="btns" style="margin-top:12px"><button class="primary" id="saveAuto">Speichern</button></div>
     <div class="msg" id="autoMsg"></div>
   </div>
@@ -200,6 +209,12 @@ function renderAuto(s) {
   $("s_budgetMaxEur").value = s.budgetMaxEur;
   $("s_archidektOwnUsername").value = s.archidektOwnUsername;
   $("s_reelLength").value = s.reelLength;
+  $("s_newsEnabled").checked = s.newsEnabled;
+  $("s_newsAutoDraft").checked = s.newsAutoDraft;
+  $("s_newsPush").checked = s.newsPush;
+  $("s_newsIntervalHours").value = s.newsIntervalHours;
+  $("s_spoilerMin").value = s.spoilerMin;
+  $("s_newsFeeds").value = (s.newsFeeds || []).join("\n");
   $("s_week").innerHTML = WEEK.map(([d, n]) => {
     const slot = s.schedule[d];
     return `<div class="wrow ${slot.kind}" data-day="${d}"><b>${n}</b>
@@ -222,6 +237,9 @@ $("saveAuto").onclick = async () => {
     dailyDecks: $("s_dailyDecks").checked, story: $("s_story").checked, autoHideSpam: $("s_autoHideSpam").checked,
     autoReply: $("s_autoReply").checked, lookaheadDays: +$("s_lookaheadDays").value, budgetMaxEur: +$("s_budgetMaxEur").value,
     archidektOwnUsername: $("s_archidektOwnUsername").value, reelLength: $("s_reelLength").value, schedule,
+    newsEnabled: $("s_newsEnabled").checked, newsAutoDraft: $("s_newsAutoDraft").checked, newsPush: $("s_newsPush").checked,
+    newsIntervalHours: +$("s_newsIntervalHours").value, spoilerMin: +$("s_spoilerMin").value,
+    newsFeeds: $("s_newsFeeds").value.split("\n").map((x) => x.trim()).filter(Boolean),
   };
   const r = await fetch("/api/settings/app", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (r.ok) { renderAuto(await r.json()); $("autoMsg").textContent = "Gespeichert. Neue Entwürfe folgen dem Plan."; }
