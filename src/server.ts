@@ -19,6 +19,7 @@ import {
 import { mediaUrls, runSchedulerNow, startScheduler } from "./queue/scheduler";
 import { fetchNextDeck, planInfo } from "./sourcing/dailyDeck";
 import { getTask, listTasks, startTask } from "./tasks/tasks";
+import { applyPronunciation, DEFAULT_RULES, getRules, saveRules } from "./settings/pronunciation";
 import * as fs from "fs";
 import { authEnabled, handleLogin, handleLogout, requireAuth } from "./auth";
 import {
@@ -353,6 +354,20 @@ app.patch("/api/queue/:id", (req, res) => {
   // Jede inhaltliche Aenderung braucht eine neue Freigabe
   if (item.status !== "draft") patch.status = "draft";
   res.json(toQueueSummary(updateItem(item.id, patch)!));
+});
+
+// --- Aussprache-Regeln fuer das Voice-over ---
+app.get("/api/settings/pronunciation", (_req, res) => {
+  res.json({ rules: getRules(), defaults: DEFAULT_RULES });
+});
+app.put("/api/settings/pronunciation", (req, res) => {
+  if (!Array.isArray(req.body?.rules)) return res.status(400).json({ error: "rules must be an array" });
+  res.json({ rules: saveRules(req.body.rules) });
+});
+app.post("/api/settings/pronunciation/preview", (req, res) => {
+  const text = String(req.body?.text ?? "").slice(0, 500);
+  const rules = Array.isArray(req.body?.rules) ? req.body.rules : undefined;
+  res.json({ spoken: applyPronunciation(text, rules) });
 });
 
 app.get("/api/plan/info", (_req, res) => {

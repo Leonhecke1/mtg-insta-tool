@@ -6,6 +6,7 @@ import puppeteer, { Browser } from "puppeteer";
 import { config } from "../config";
 import { Deck } from "../types";
 import { analyzeDeck, DeckAnalysis } from "../llm/fallback";
+import { applyPronunciation } from "../settings/pronunciation";
 import { escapeHtml } from "./components";
 import { FONT_STACK, MANA_CIRCLE_COLORS } from "./theme";
 
@@ -31,7 +32,7 @@ const FONT = FONT_STACK.replace(/"/g, "'");
  * in ~/.claude/instagram/swipe.md am besten lief: Karte als Hauptmotiv,
  * kurzer Hook vorne, Text in < 1 s lesbar.
  */
-type BeatKind = "hook" | "commander" | "engine" | "stats" | "price" | "cta";
+type BeatKind = "hook" | "commander" | "plan" | "engine" | "curve" | "stats" | "price" | "cta";
 
 interface Beat {
   kind: BeatKind;
@@ -76,11 +77,14 @@ function listJoin(items: string[]): string {
 
 /** Text fuer TTS saeubern (Piper liest Sonderzeichen sonst seltsam vor) */
 function speakable(s: string): string {
-  return s
-    .replace(/€\s?(\d+)/g, "$1 euros")
-    .replace(/&/g, " and ")
-    .replace(/\{[^}]*\}/g, " ")
-    .replace(/[^\p{L}\p{N}\s.,!?'+/-]/gu, " ")
+  // Erst die eigenen Aussprache-Regeln (Einstellungen), dann aufraeumen
+  return applyPronunciation(
+    s
+      .replace(/€\s?(\d+)/g, "$1 euros")
+      .replace(/&/g, " and ")
+      .replace(/\{[^}]*\}/g, " ")
+  )
+    .replace(/[^\p{L}\p{N}\s.,!?'+-]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -113,6 +117,13 @@ export function reelScript(deck: Deck, hookOverride?: string): ReelScript {
       say: abilityShort ? `Meet ${a.name}. ${abilityShort}.` : `Meet ${a.name}, ${a.combo} ${a.style}.`,
     },
   ];
+  // Spielplan: Schritte ohne Klammer-Zusaetze ("Ramp (6 sources)" -> "ramp")
+  const planSpoken = a.steps.map((st, i) => {
+    const plain = st.replace(/\s*\([^)]*\)/g, "");
+    return i === 0 ? plain : plain.charAt(0).toLowerCase() + plain.slice(1);
+  });
+  beats.push({ kind: "plan", base: 3.4, say: `The plan: ${planSpoken[0]}, ${planSpoken[1]}, then ${planSpoken[2]}.` });
+
   if (a.keyCards.length) {
     beats.push({
       kind: "engine",
@@ -120,10 +131,20 @@ export function reelScript(deck: Deck, hookOverride?: string): ReelScript {
       say: `The engine: ${listJoin(a.keyCards.map((c) => c.name.split(" // ")[0]))}.`,
     });
   }
+
+  const avg = a.avgManaValue.toFixed(1);
+  const pace = a.avgManaValue < 2.8 ? "so it comes down fast" : a.avgManaValue < 3.5 ? "a smooth curve" : "so it goes big";
+  beats.push({ kind: "curve", base: 3.2, say: `Average mana value ${avg}, ${pace}.` });
+
   if (statParts.length >= 2) {
     beats.push({ kind: "stats", base: 2.6, say: `${listJoin(statParts)} keep it running.` });
   }
-  beats.push({ kind: "price", base: 2.2, say: `All of it for about ${price} euros.` });
+  const priciest = a.priciest && a.priciest.priceEur >= 5 ? a.priciest : null;
+  beats.push({
+    kind: "price",
+    base: priciest ? 3.2 : 2.2,
+    say: `All of it for about ${price} euros.${priciest ? ` The priciest card is ${priciest.name.split(" // ")[0]}.` : ""}`,
+  });
   beats.push({ kind: "cta", base: 2.6, say: "Full list in the caption. Follow for a new deck every day." });
 
   return { hook, beats, analysis: a };
@@ -136,7 +157,15 @@ export function reelScript(deck: Deck, hookOverride?: string): ReelScript {
 interface TimedBeat extends Beat {
   start: number;
   dur: number;
+  /** Laenge der Sprachspur (0 ohne Voice-over) - fuer Untertitel-Timing */
+  voiceSec: number;
 }
+
+/**
+ * Layout-Regel: Szenen-Inhalt endet spaetestens bei y = 1370. Darunter liegt
+ * der Untertitel-Streifen (1400-1540), danach Instagrams eigene Bedienelemente.
+ */
+const SUB_TOP = 1400;
 
 function cardImg(url: string | null, cls: string, extra = ""): string {
   return url ? `<img class="${cls}" src="${escapeHtml(url)}" ${extra} alt="">` : "";
@@ -153,7 +182,7 @@ function beatHtml(b: TimedBeat, deck: Deck, s: ReelScript): string {
           <div class="chip anim" data-d="0" data-y="-30">COMMANDER DECK TECH</div>
           <h1 class="hook anim" data-d="0.08" data-y="60" data-s="0.92">${escapeHtml(s.hook)}</h1>
         </div>
-        <div class="stack" style="top:820px">
+        <div class="stack" style="top:640px">
           ${cmd?.imageArtCrop ? `<div class="teaser anim" data-d="0.2" data-y="120" data-s="0.88" data-r="-4"><img src="${escapeHtml(cmd.imageArtCrop)}" alt=""></div>` : cardImg(cmd?.imageNormal ?? null, "card hero anim", 'data-d="0.25" data-y="140" data-s="0.85"')}
         </div>
       </section>`;
@@ -163,20 +192,59 @@ function beatHtml(b: TimedBeat, deck: Deck, s: ReelScript): string {
           <div class="eyebrow anim" data-d="0" data-y="-20">${escapeHtml(a.combo)} · ${escapeHtml(a.style)}</div>
           <h2 class="name anim" data-d="0.05" data-y="30">${escapeHtml(a.name)}</h2>
         </div>
-        <div class="stack" style="top:430px">
+        <div class="stack" style="top:390px">
           ${cardImg(cmd?.imageNormal ?? null, "card mid anim", 'data-d="0.1" data-x="260" data-r="8" data-s="0.9"')}
         </div>
         ${
           a.ability
-            ? `<div class="stack" style="top:1300px"><p class="ability anim" data-d="0.55" data-y="40">${escapeHtml(
-                a.ability.length > 150 ? a.ability.slice(0, 147) + "…" : a.ability
+            ? `<div class="stack" style="top:1150px"><p class="ability anim" data-d="0.55" data-y="40">${escapeHtml(
+                a.ability.length > 130 ? a.ability.slice(0, 127) + "…" : a.ability
               )}</p></div>`
             : ""
         }
       </section>`;
+    case "plan":
+      return `<section ${attrs}>
+        <div class="stack" style="top:230px">
+          <div class="eyebrow anim" data-d="0" data-y="-20">THE GAME PLAN</div>
+          <h2 class="title anim" data-d="0.05" data-y="30">How it wins</h2>
+        </div>
+        <div class="steps">
+          ${a.steps
+            .map(
+              (st, i) => `<div class="step anim" data-d="${0.2 + i * 0.4}" data-x="-160">
+                <div class="no">${i + 1}</div><div class="txt">${escapeHtml(st)}</div>
+              </div>`
+            )
+            .join("")}
+        </div>
+      </section>`;
+    case "curve": {
+      const max = Math.max(1, ...a.curve);
+      const bars = a.curve
+        .map(
+          (n, i) => `<div class="col">
+            <div class="cnt" data-count="${n}" data-cd="${0.15 + i * 0.06}">0</div>
+            <div class="bar" data-grow="${Math.round((n / max) * 420)}" data-gd="${0.15 + i * 0.06}"></div>
+            <div class="mv">${i === 7 ? "7+" : i}</div>
+          </div>`
+        )
+        .join("");
+      const c = a.counts;
+      return `<section ${attrs}>
+        <div class="stack" style="top:230px">
+          <div class="eyebrow anim" data-d="0" data-y="-20">MANA CURVE</div>
+          <h2 class="title anim" data-d="0.05" data-y="30">Ø <span data-count10="${Math.round(a.avgManaValue * 10)}" data-cd="0.1">0.0</span> mana value</h2>
+        </div>
+        <div class="curve anim" data-d="0.1" data-y="40">${bars}</div>
+        <div class="split anim" data-d="0.7" data-y="30">
+          <span><b>${c.creatures}</b> creatures</span><span><b>${c.spells}</b> spells</span><span><b>${c.permanents}</b> other</span><span><b>${c.lands}</b> lands</span>
+        </div>
+      </section>`;
+    }
     case "engine": {
       const rot = [-9, 0, 9];
-      const dx = [-220, 0, 220];
+      const dx = [-205, 0, 205];
       const cards = a.keyCards
         .map(
           (c, i) =>
@@ -215,19 +283,29 @@ function beatHtml(b: TimedBeat, deck: Deck, s: ReelScript): string {
         </div>
       </section>`;
     }
-    case "price":
+    case "price": {
+      const pc = a.priciest && a.priciest.priceEur >= 5 ? a.priciest : null;
       return `<section ${attrs}>
-        <div class="stack" style="top:560px">
+        <div class="stack" style="top:${pc ? 300 : 560}px">
           <div class="eyebrow anim" data-d="0" data-y="-20">THE WHOLE DECK</div>
           <div class="price anim" data-d="0.05" data-s="0.7"><span data-count="${Math.round(
             a.priceEur
           )}" data-cd="0.05" data-prefix="€">€0</span></div>
           <div class="sub anim" data-d="0.4" data-y="30">${a.cardCount} cards · Cardmarket trend</div>
+          ${
+            pc
+              ? `<div class="priciest anim" data-d="0.9" data-y="80" data-s="0.9">
+                  ${cardImg(pc.image, "card pcard")}
+                  <div><div class="plabel">PRICIEST CARD</div><div class="pname">${escapeHtml(pc.name.split(" // ")[0])}</div><div class="pval">€${pc.priceEur.toFixed(2)}</div></div>
+                </div>`
+              : ""
+          }
         </div>
       </section>`;
+    }
     case "cta":
       return `<section ${attrs}>
-        <div class="stack" style="top:520px">
+        <div class="stack" style="top:440px">
           ${cardImg(cmd?.imageNormal ?? null, "card tiny anim", 'data-d="0" data-s="0.6"')}
           <h2 class="title anim" data-d="0.15" data-y="40">Full decklist<br>in the caption</h2>
           <div class="follow anim" data-d="0.45" data-y="40" data-s="0.9">Follow @floating.mana</div>
@@ -266,13 +344,13 @@ function pageHtml(deck: Deck, s: ReelScript, beats: TimedBeat[], total: number, 
   .card.hero { width: 690px; }
   .teaser { width: 900px; height: 660px; border-radius: 36px; overflow: hidden; box-shadow: 0 50px 120px rgba(0,0,0,.65); border: 6px solid rgba(255,255,255,.18); }
   .teaser img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.05); }
-  .card.mid { width: 600px; }
-  .card.small { width: 380px; }
+  .card.mid { width: 520px; }
+  .card.small { width: 360px; }
   .card.tiny { width: 300px; margin-bottom: 20px; }
   .ability { margin: 0; font-size: 42px; line-height: 1.3; font-weight: 600; max-width: 900px;
              background: rgba(0,0,0,.55); padding: 26px 34px; border-radius: 26px; border-left: 8px solid ${accent}; text-align: left; }
   .fanrow { position: absolute; left: 0; right: 0; top: 640px; height: 700px; }
-  .fan { position: absolute; left: 50%; top: 40px; margin-left: -190px; }
+  .fan { position: absolute; left: 50%; top: 40px; margin-left: -180px; }
   .stats { position: absolute; left: 70px; right: 70px; top: 520px; display: grid; gap: 34px; }
   .stat { display: flex; align-items: baseline; gap: 34px; background: rgba(0,0,0,.45); border-radius: 30px; padding: 30px 46px; border: 2px solid rgba(255,255,255,.12); }
   .stat .num { font-size: 170px; font-weight: 900; line-height: 1; min-width: 260px; color: ${accent}; font-variant-numeric: tabular-nums; }
@@ -280,11 +358,30 @@ function pageHtml(deck: Deck, s: ReelScript, beats: TimedBeat[], total: number, 
   .price { font-size: 250px; font-weight: 900; line-height: 1; letter-spacing: -6px; color: ${accent}; font-variant-numeric: tabular-nums; text-shadow: 0 10px 60px rgba(0,0,0,.6); }
   .sub { font-size: 42px; font-weight: 600; color: rgba(255,255,255,.85); }
   .follow { font-size: 54px; font-weight: 900; color: #1F1D18; background: ${accent}; padding: 22px 44px; border-radius: 999px; }
+  .steps { position: absolute; left: 70px; right: 70px; top: 520px; display: grid; gap: 30px; }
+  .step { display: flex; align-items: center; gap: 34px; background: rgba(0,0,0,.45); border: 2px solid rgba(255,255,255,.12); border-radius: 30px; padding: 30px 40px; }
+  .step .no { flex: none; width: 120px; height: 120px; border-radius: 50%; background: ${accent}; color: #1F1D18; font-size: 72px; font-weight: 900; display: flex; align-items: center; justify-content: center; }
+  .step .txt { font-size: 60px; font-weight: 800; line-height: 1.1; text-align: left; }
+  .curve { position: absolute; left: 70px; right: 70px; top: 500px; height: 560px; display: grid; grid-template-columns: repeat(8, 1fr); gap: 14px; align-items: end; }
+  .curve .col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+  .curve .cnt { font-size: 40px; font-weight: 800; margin-bottom: 10px; font-variant-numeric: tabular-nums; }
+  .curve .bar { width: 100%; height: 0; border-radius: 14px 14px 4px 4px; background: linear-gradient(180deg, ${accent}, ${accent}99); }
+  .curve .mv { margin-top: 14px; font-size: 38px; font-weight: 800; color: rgba(255,255,255,.75); }
+  .split { position: absolute; left: 70px; right: 70px; top: 1150px; display: flex; flex-wrap: wrap; justify-content: center; gap: 14px 34px; font-size: 40px; color: rgba(255,255,255,.85); }
+  .split b { color: #fff; font-weight: 900; }
+  .priciest { display: flex; align-items: center; gap: 34px; margin-top: 30px; background: rgba(0,0,0,.45); border: 2px solid rgba(255,255,255,.12); border-radius: 30px; padding: 24px 34px; text-align: left; }
+  .card.pcard { width: 230px; box-shadow: 0 20px 50px rgba(0,0,0,.5); }
+  .plabel { font-size: 28px; font-weight: 800; letter-spacing: 4px; color: ${accent}; }
+  .pname { font-size: 52px; font-weight: 900; line-height: 1.05; margin: 8px 0; max-width: 560px; }
+  .pval { font-size: 46px; font-weight: 700; color: rgba(255,255,255,.85); }
   #progress { position: absolute; top: 70px; left: 70px; right: 70px; display: flex; gap: 10px; }
   #progress div { flex: 1; height: 8px; border-radius: 4px; background: rgba(255,255,255,.25); overflow: hidden; }
   #progress i { display: block; height: 100%; width: 0; background: #fff; }
-  #sub { position: absolute; left: 90px; right: 90px; top: 1440px; text-align: center; font-size: 46px; line-height: 1.25; font-weight: 800;
-         text-shadow: 0 3px 0 #000, 0 0 24px rgba(0,0,0,.9); display: ${subtitles ? "block" : "none"}; }
+  /* Eigener Streifen unter allen Szenen-Inhalten; Stuecke von max. 2 Zeilen */
+  #sub { position: absolute; left: 80px; right: 80px; top: ${SUB_TOP}px; height: 140px; display: ${subtitles ? "flex" : "none"};
+         align-items: flex-start; justify-content: center; text-align: center; }
+  #sub span { font-size: 46px; line-height: 1.3; font-weight: 800; background: rgba(0,0,0,.62); padding: 6px 20px; border-radius: 14px;
+         box-decoration-break: clone; -webkit-box-decoration-break: clone; }
   #handle { position: absolute; bottom: 120px; width: 100%; text-align: center; font-size: 32px; font-weight: 700; color: rgba(255,255,255,.6); }
 </style></head><body>
   <div id="bg"></div><div id="glow"></div><div id="shade"></div>
@@ -294,7 +391,33 @@ function pageHtml(deck: Deck, s: ReelScript, beats: TimedBeat[], total: number, 
   <div id="handle">@floating.mana</div>
 <script>
   const TOTAL = ${total};
-  const BEATS = ${JSON.stringify(beats.map((b) => ({ start: b.start, dur: b.dur, say: b.say })))};
+  const BEATS = ${JSON.stringify(beats.map((b) => ({ start: b.start, dur: b.dur, say: b.say, voice: b.voiceSec })))};
+  // Untertitel in Stuecke von max. 2 Zeilen teilen: zuerst an Satzzeichen
+  // (damit nichts mitten im Satzteil abreisst), nur zu lange Teile nach
+  // Woertern; danach proportional zur Textlaenge ueber die Sprechdauer verteilen
+  const MAX = 52, WRAP = 40;
+  BEATS.forEach((b) => {
+    const clauses = b.say.split(/(?<=[.,:;!?])\\s+/).filter(Boolean);
+    const parts = [];
+    for (const c of clauses) {
+      if (c.length <= MAX) { parts.push(c); continue; }
+      let cur = "";
+      for (const w of c.split(/\\s+/)) {
+        if (cur && (cur + " " + w).length > WRAP) { parts.push(cur); cur = w; } else cur = cur ? cur + " " + w : w;
+      }
+      if (cur) parts.push(cur);
+    }
+    // kurze Reste mit dem Nachbarn zusammenlegen
+    const chunks = [];
+    for (const p of parts) {
+      const last = chunks[chunks.length - 1];
+      if (last && (last.length < 16 || p.length < 16) && (last + " " + p).length <= MAX) chunks[chunks.length - 1] = last + " " + p;
+      else chunks.push(p);
+    }
+    const span = (b.voice || b.dur - 0.3), total = chunks.reduce((n, c) => n + c.length, 0);
+    let at = b.start + 0.15;
+    b.chunks = chunks.map((c) => { const s = at; at += span * (c.length / total); return { from: s, text: c }; });
+  });
   const easeOut = (t) => 1 - Math.pow(1 - t, 3);
   const easeOutBack = (t) => { const c = 1.4; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
   const clamp = (x) => Math.max(0, Math.min(1, x));
@@ -337,11 +460,27 @@ function pageHtml(deck: Deck, s: ReelScript, beats: TimedBeat[], total: number, 
         const p = easeOut(clamp((lt - (+el.dataset.cd || 0)) / 0.9));
         el.textContent = (el.dataset.prefix || "") + Math.round(+el.dataset.count * p);
       });
+      // Kommazahl (Zehntel), z. B. durchschnittlicher Manawert
+      sec.querySelectorAll("[data-count10]").forEach((el) => {
+        const p = easeOut(clamp((lt - (+el.dataset.cd || 0)) / 0.9));
+        el.textContent = ((+el.dataset.count10 * p) / 10).toFixed(1);
+      });
+      // Balken wachsen hoch
+      sec.querySelectorAll("[data-grow]").forEach((el) => {
+        const p = easeOut(clamp((lt - (+el.dataset.gd || 0)) / 0.8));
+        el.style.height = (+el.dataset.grow * p) + "px";
+      });
     });
 
     BEATS.forEach((b, i) => { bars[i].style.width = (clamp((t - b.start) / b.dur) * 100) + "%"; });
     const cur = BEATS.find((b) => t >= b.start && t < b.start + b.dur) || BEATS[BEATS.length - 1];
-    sub.textContent = cur.say;
+    const chunk = [...cur.chunks].reverse().find((c) => t >= c.from);
+    const text = chunk ? chunk.text : "";
+    if (sub.dataset.text !== text) {
+      sub.dataset.text = text;
+      sub.innerHTML = text ? "<span></span>" : "";
+      if (text) sub.firstChild.textContent = text;
+    }
   };
 
   window.assetsReady = () => Promise.all([...document.images].map((img) =>
@@ -360,6 +499,8 @@ export interface ReelOptions {
   hook?: string;
   /** Fortschritt (Schritt, 0..1) fuer die Anzeige in der App */
   onProgress?: (step: string, progress?: number) => void;
+  /** Untertitel auch ohne Voice-over einblenden */
+  subtitles?: boolean;
 }
 
 /**
@@ -385,7 +526,7 @@ export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = 
   const beats: TimedBeat[] = script.beats.map((b, i) => {
     const v = voices[i];
     const dur = Math.max(b.base, v ? v.seconds + 0.45 : 0);
-    const tb = { ...b, start: t, dur };
+    const tb = { ...b, start: t, dur, voiceSec: v ? v.seconds : 0 };
     t += dur;
     return tb;
   });
@@ -427,7 +568,7 @@ export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = 
     browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
     const page = await browser.newPage();
     await page.setViewport({ width: W, height: H, deviceScaleFactor: 1 });
-    await page.setContent(pageHtml(deck, script, beats, total, withVoice), { waitUntil: "networkidle0", timeout: 90_000 });
+    await page.setContent(pageHtml(deck, script, beats, total, withVoice || Boolean(opts.subtitles)), { waitUntil: "networkidle0", timeout: 90_000 });
     await page.evaluate("window.assetsReady()");
     report("Reel: lade Kartenbilder", 0.08);
     const coverFrame = Math.min(frames - 1, Math.round(1.8 * FPS));

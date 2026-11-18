@@ -25,6 +25,12 @@
   button:disabled { opacity: .5; }
   ol { margin: 0; padding-left: 20px; color: #7A7263; font-size: 14px; line-height: 1.6; }
   .msg { font-size: 14px; color: #7A7263; margin-top: 8px; min-height: 1.2em; }
+  .rule { display: grid; grid-template-columns: 1fr 18px 1fr 44px; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .rule .arrow { color: #9A8F7A; text-align: center; }
+  .rule input, #probe { font: inherit; font-size: 16px; width: 100%; padding: 10px; border: 1px solid #D5CBB5; border-radius: 10px; min-width: 0; }
+  .rule button { min-height: 44px; padding: 0; border-color: #E2D9C6; color: #A23B2A; font-size: 20px; }
+  .spoken { margin-top: 8px; padding: 10px 12px; background: #F4EFE4; border-radius: 10px; font-size: 15px; }
+  .spoken:before { content: "Gesprochen: "; color: #7A7263; }
 </style>
 </head>
 <body>
@@ -50,6 +56,23 @@
       <li><b>Zum Home-Bildschirm</b> wählen</li>
       <li>Die App vom Homescreen öffnen und hier „Benachrichtigungen aktivieren“ tippen</li>
     </ol>
+  </div>
+
+  <div class="card">
+    <h2>Aussprache (Voice-over)</h2>
+    <p>So werden Begriffe in Reels vorgelesen. Links der Text, rechts wie er gesprochen wird. Gilt nur für die Stimme, die Untertitel bleiben unverändert. Zahlen wie „4/4“ werden automatisch ohne „slash“ gelesen.</p>
+    <div id="rules"></div>
+    <div class="btns" style="grid-template-columns:1fr 1fr;margin-top:10px">
+      <button id="addRule">+ Eintrag</button>
+      <button id="resetRules">Standard</button>
+    </div>
+    <div class="field" style="margin-top:14px">
+      <label for="probe" style="font-size:13px;color:#7A7263">Probetext</label>
+      <input id="probe" value="Put a +1/+1 counter on each creature. ETB: create a 4/4 token." />
+      <div class="spoken" id="spoken"></div>
+    </div>
+    <div class="btns" style="margin-top:10px"><button class="primary" id="saveRules">Speichern</button></div>
+    <div class="msg" id="rulesMsg"></div>
   </div>
 
   <div class="card">
@@ -133,6 +156,57 @@ $("disable").onclick = async () => {
   $("msg").textContent = "Deaktiviert.";
   refresh();
 };
+
+// --- Aussprache-Regeln ---
+let defaults = [];
+function ruleRow(r = { from: "", to: "" }) {
+  const row = document.createElement("div");
+  row.className = "rule";
+  row.innerHTML = `<input class="from" placeholder="Text, z. B. +1/+1" autocapitalize="off" autocorrect="off">
+    <span class="arrow">→</span><input class="to" placeholder="gesprochen als" autocapitalize="off">
+    <button type="button" aria-label="Entfernen">×</button>`;
+  row.querySelector(".from").value = r.from;
+  row.querySelector(".to").value = r.to;
+  row.querySelector("button").onclick = () => { row.remove(); preview(); };
+  return row;
+}
+const currentRules = () => [...document.querySelectorAll(".rule")]
+  .map((r) => ({ from: r.querySelector(".from").value, to: r.querySelector(".to").value }))
+  .filter((r) => r.from.trim());
+function renderRules(rules) {
+  $("rules").innerHTML = "";
+  rules.forEach((r) => $("rules").appendChild(ruleRow(r)));
+  preview();
+}
+let previewTimer;
+function preview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(async () => {
+    const r = await fetch("/api/settings/pronunciation/preview", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: $("probe").value, rules: currentRules() }),
+    });
+    $("spoken").textContent = r.ok ? (await r.json()).spoken : "";
+  }, 250);
+}
+$("rules").addEventListener("input", preview);
+$("probe").addEventListener("input", preview);
+$("addRule").onclick = () => { const row = ruleRow(); $("rules").appendChild(row); row.querySelector(".from").focus(); };
+$("resetRules").onclick = () => { renderRules(defaults); $("rulesMsg").textContent = "Standard geladen, noch nicht gespeichert."; };
+$("saveRules").onclick = async () => {
+  const r = await fetch("/api/settings/pronunciation", {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rules: currentRules() }),
+  });
+  $("rulesMsg").textContent = r.ok ? "Gespeichert. Gilt für alle neuen Reels." : "Speichern fehlgeschlagen.";
+  if (r.ok) renderRules((await r.json()).rules);
+};
+(async () => {
+  const r = await fetch("/api/settings/pronunciation");
+  if (!r.ok) return;
+  const data = await r.json();
+  defaults = data.defaults;
+  renderRules(data.rules);
+})();
 
 $("logout").onclick = async () => {
   await fetch("/api/logout", { method: "POST" });
