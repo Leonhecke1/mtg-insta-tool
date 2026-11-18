@@ -201,3 +201,25 @@ still, weil die API keine Trend-Audio setzen kann.
 Der Scheduler verlängert den Long-lived-Token automatisch alle 7 Tage und speichert
 ihn in `DATA_DIR/ig-token.json`. Wird in der `.env` ein neuer `IG_ACCESS_TOKEN`
 eingetragen, hat dieser Vorrang.
+
+### Täglicher Deck-Post
+
+Mit `DAILY_DECKS=true` legt der Server für die nächsten Tage je einen Carousel-Entwurf
+(plus Story) in `/queue.html` an. Ein abgelehnter Entwurf wird beim nächsten Lauf
+durch ein anderes Deck ersetzt.
+
+Quelle ist Archidekt: zuerst eigene, noch nicht gepostete Decks, dann beliebte
+Community-Decks (Bracket ≤ 3 oder ohne Angabe, kein cEDH-Tag, unter Budget,
+Commander noch nie gepostet). Fremde Decks bekommen immer einen Credit an den
+Ersteller in der Caption. Moxfield wird nicht automatisch abgefragt.
+
+```
+DAILY_DECKS=true
+DAILY_POST_HOUR=19          # Serverzeit; ggf. TZ=Europe/Berlin setzen
+DAILY_LOOKAHEAD_DAYS=3
+DAILY_BUDGET_MAX_EUR=250
+DAILY_STORY=true
+ARCHIDEKT_OWN_USERNAME=floating.mana
+```
+
+Mit `ANTHROPIC_API_KEY` schreibt das LLM Tagline, Gameplan und Caption, ohne Key gibt es nur Platzhaltertexte.

@@ -21,6 +21,8 @@ export interface PipelineInput {
 export interface PipelineOptions {
   jobId: string;
   useLlm: boolean;
+  /** Zeile, die an den Caption-Text angehaengt wird (z. B. Credit fuer fremde Decks) */
+  creditLine?: string;
 }
 
 export interface RenderedDeckTech {
@@ -97,6 +99,11 @@ export async function runPipeline(
 
   const { deck, notFoundNames, usedFallbackNames } = await enrichDeck(raw);
   const texts = await generateTexts(deck, opts.useLlm);
+  if (opts.creditLine) {
+    texts.caption = { ...texts.caption, body: `${texts.caption.body}
+
+${opts.creditLine}` };
+  }
   const sourceUrl = input.moxfieldUrl ?? input.archidektUrl;
   const rendered = await renderDeckTech(deck, texts, opts.jobId, sourceUrl);
 

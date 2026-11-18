@@ -10,6 +10,7 @@ import {
 } from "../instagram/client";
 import { draftReply } from "../llm/replyDrafter";
 import { refreshTokenIfDue } from "../instagram/token";
+import { ensureDailyDrafts } from "../sourcing/dailyDeck";
 import { nanoid } from "nanoid";
 import {
   addItem,
@@ -109,21 +110,40 @@ async function pollComments(): Promise<void> {
 }
 
 let lastTokenCheck = 0;
+let lastDailyCheck = 0;
 
 async function tick(): Promise<void> {
   if (running) return;
   running = true;
   try {
-    if (Date.now() - lastTokenCheck > 6 * 3600_000) {
-      lastTokenCheck = Date.now();
-      await refreshTokenIfDue().catch((err) => console.error("[scheduler]", err.message));
+    if (instagramConfigured()) {
+      if (Date.now() - lastTokenCheck > 6 * 3600_000) {
+        lastTokenCheck = Date.now();
+        await refreshTokenIfDue().catch((err) => console.error("[scheduler]", err.message));
+      }
+      await publishDue();
+      await pollComments().catch((err) => console.error("[scheduler] comments:", err.message));
     }
-    await publishDue();
-    await pollComments();
   } catch (err) {
     console.error("[scheduler] tick failed:", err);
   } finally {
     running = false;
+  }
+}
+
+let dailyRunning = false;
+
+// Eigener Lauf, damit langsames Rendern faellige Posts nicht blockiert
+async function dailyTick(): Promise<void> {
+  if (!config.dailyDecks || dailyRunning || Date.now() - lastDailyCheck < 3600_000) return;
+  dailyRunning = true;
+  lastDailyCheck = Date.now();
+  try {
+    await ensureDailyDrafts();
+  } catch (err) {
+    console.error("[daily]", err instanceof Error ? err.message : err);
+  } finally {
+    dailyRunning = false;
   }
 }
 
@@ -132,9 +152,13 @@ export function startScheduler(): void {
     console.warn(
       "[scheduler] IG_USER_ID / IG_ACCESS_TOKEN / PUBLIC_BASE_URL not set - auto-publishing disabled"
     );
-    return;
   }
+  if (!instagramConfigured() && !config.dailyDecks) return;
   console.log(`[scheduler] running every ${config.schedulerIntervalSec}s`);
-  setInterval(tick, config.schedulerIntervalSec * 1000);
+  setInterval(() => {
+    void tick();
+    void dailyTick();
+  }, config.schedulerIntervalSec * 1000);
   void tick();
+  void dailyTick();
 }
