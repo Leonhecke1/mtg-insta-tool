@@ -1,7 +1,7 @@
 import { Deck, EnrichedCard, GeneratedTexts } from "../types";
 import { colorComboName } from "../render/theme";
 import { commanderDisplayName, formatEur } from "../render/components";
-import { isCreature, isInstant, isLand, isSorcery } from "../render/classify";
+import { isArtifactOrEnchantment, isCreature, isInstant, isLand, isSorcery, manaValue } from "../render/classify";
 
 /**
  * Regelbasierte Deck-Texte ohne LLM (kostenlos). Liest Archetyp,
@@ -273,6 +273,13 @@ export interface DeckAnalysis {
   stats: Stats;
   priceEur: number;
   cardCount: number;
+  /** Spielplan in 3 kurzen Schritten (wie auf der Gameplan-Slide) */
+  steps: [string, string, string];
+  /** Anzahl Nicht-Laender je Manawert: Index 0..6, Index 7 = 7+ */
+  curve: number[];
+  avgManaValue: number;
+  counts: { creatures: number; spells: number; permanents: number; lands: number };
+  priciest: { name: string; priceEur: number; image: string | null } | null;
 }
 
 export function analyzeDeck(deck: Deck): DeckAnalysis {
@@ -281,6 +288,24 @@ export function analyzeDeck(deck: Deck): DeckAnalysis {
   const second = archs[1];
   const tr = tribe(deck);
   const fullName = commanderDisplayName(deck.commanders);
+  const st = stats(deck);
+  const short = deck.commanders.map((c) => shortName(c.name)).join(" & ") || fullName;
+
+  const spells = nonLand(deck);
+  const curve = new Array(8).fill(0);
+  let mvSum = 0;
+  let mvN = 0;
+  for (const c of spells) {
+    const mv = manaValue(c);
+    curve[Math.min(7, mv)] += c.quantity;
+    mvSum += mv * c.quantity;
+    mvN += c.quantity;
+  }
+  const qty = (pred: (c: EnrichedCard) => boolean) =>
+    deck.mainboard.filter(pred).reduce((n, c) => n + c.quantity, 0);
+  const priced = [...deck.mainboard, ...deck.commanders].filter((c) => (c.priceEur ?? 0) > 0);
+  const top = priced.sort((a, b) => (b.priceEur ?? 0) - (a.priceEur ?? 0))[0];
+
   return {
     name: deck.commanders.map((c) => shortName(c.name)).join(" & ") || fullName,
     combo: colorComboName(deck.colorIdentity),
@@ -290,9 +315,23 @@ export function analyzeDeck(deck: Deck): DeckAnalysis {
     finish: main?.finish ?? null,
     ability: deck.commanders[0] ? commanderAbility(deck.commanders[0]) : null,
     keyCards: keyCardObjs(deck, main, 3),
-    stats: stats(deck),
+    stats: st,
     priceEur: deck.totalPriceEur,
     cardCount: deck.cardCount,
+    steps: [
+      st.ramp >= 3 ? `Ramp (${st.ramp} sources)` : "Develop the board",
+      main ? `Build the ${main.id} engine` : `Deploy ${short}`,
+      main ? STEP_BY_ID[main.id] ?? "Close the game" : "Close with the board",
+    ],
+    curve,
+    avgManaValue: mvN ? mvSum / mvN : 0,
+    counts: {
+      creatures: qty(isCreature),
+      spells: qty((c) => isInstant(c) || isSorcery(c)),
+      permanents: qty(isArtifactOrEnchantment),
+      lands: qty(isLand),
+    },
+    priciest: top ? { name: top.name, priceEur: top.priceEur ?? 0, image: top.imageNormal } : null,
   };
 }
 
