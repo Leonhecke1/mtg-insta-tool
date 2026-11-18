@@ -186,3 +186,18 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 .modal-actions button.primary { background: #1F1D18; color: #fff; border-color: #1F1D18; }
 .modal-actions button:disabled { opacity: 0.5; cursor: default; }
 #modal-status { color: #7A7263; font-size: 13px; margin-top: 10px; }
+
+/* --- Mobil --- */
+@media (max-width: 600px) {
+  header { padding: 20px 16px 8px; }
+  main { padding: 0 16px 24px; gap: 16px; }
+  .panel { padding: 16px; }
+  /* 16px verhindert den Auto-Zoom von iOS beim Fokussieren */
+  input, select, textarea { font-size: 16px; }
+  button { min-height: 44px; }
+  /* Grid-Spalten duerfen schrumpfen, sonst schiebt breiter Inhalt die Seite seitlich */
+  main { grid-template-columns: minmax(0, 1fr); }
+  .tabs { flex-wrap: wrap; }
+  .tab { flex: 1 1 auto; text-align: center; }
+  textarea { max-width: 100%; }
+}

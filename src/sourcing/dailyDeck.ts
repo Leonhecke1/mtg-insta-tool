@@ -9,6 +9,7 @@ import { runPipeline } from "../pipeline";
 import { createJob, listJobs, updateJob } from "../jobs/jobStore";
 import { ensureJpegs } from "../render/renderer";
 import { buildNewPostStory } from "../render/reel";
+import { notify } from "../push/push";
 import { addItem, listItems } from "../queue/queueStore";
 import { Job } from "../types";
 
@@ -279,10 +280,23 @@ function serialized<T>(fn: () => Promise<T>): Promise<T> {
  */
 export function ensureDailyDrafts(): Promise<void> {
   return serialized(async () => {
-    for (let offset = 1; offset <= config.dailyLookaheadDays; offset++) {
-      const when = postTimeForOffset(offset);
-      if (isDayTaken(when)) continue;
-      if (!(await draftForDay(when))) return;
+    const created: string[] = [];
+    try {
+      for (let offset = 1; offset <= config.dailyLookaheadDays; offset++) {
+        const when = postTimeForOffset(offset);
+        if (isDayTaken(when)) continue;
+        const label = await draftForDay(when);
+        if (!label) break;
+        created.push(label);
+      }
+    } finally {
+      if (created.length) {
+        await notify({
+          title: created.length === 1 ? "Neues Deck wartet auf Freigabe" : `${created.length} neue Decks warten auf Freigabe`,
+          body: created.join(", "),
+          tag: "new-decks",
+        }).catch((err) => console.error("[push]", err));
+      }
     }
   });
 }

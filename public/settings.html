@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#F4EFE4" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="floating.mana" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<title>Einstellungen · floating.mana</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  header.top { position: sticky; top: 0; z-index: 10; background: #F4EFE4; padding: calc(10px + env(safe-area-inset-top)) 16px 10px; border-bottom: 1px solid #E2D9C6; }
+  header.top h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
+  .card { background: #fff; border: 1px solid #E2D9C6; border-radius: 16px; padding: 16px; margin-bottom: 12px; }
+  .card h2 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+  .card p { margin: 0 0 12px; color: #7A7263; font-size: 14px; line-height: 1.45; }
+  .status { font-size: 14px; margin-bottom: 12px; }
+  .status b { font-weight: 600; }
+  .btns { display: grid; gap: 8px; }
+  button { font: inherit; font-size: 16px; min-height: 48px; border-radius: 12px; border: 1px solid #1F1D18; background: #fff; color: #1F1D18; }
+  button.primary { background: #1F1D18; color: #F4EFE4; }
+  button:disabled { opacity: .5; }
+  ol { margin: 0; padding-left: 20px; color: #7A7263; font-size: 14px; line-height: 1.6; }
+  .msg { font-size: 14px; color: #7A7263; margin-top: 8px; min-height: 1.2em; }
+</style>
+</head>
+<body>
+<header class="top"><h1>Einstellungen</h1></header>
+<div class="wrap">
+  <div class="card">
+    <h2>Benachrichtigungen</h2>
+    <p>Bei neuen Decks, wenn ein Post bald fällig und noch nicht freigegeben ist, bei neuen Kommentaren und wenn ein Post fehlschlägt.</p>
+    <div class="status" id="pushStatus">Prüfe …</div>
+    <div class="btns">
+      <button class="primary" id="enable">Benachrichtigungen aktivieren</button>
+      <button id="test">Test-Benachrichtigung senden</button>
+      <button id="disable">Auf diesem Gerät deaktivieren</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="card" id="installCard" hidden>
+    <h2>Als App installieren</h2>
+    <p>Auf dem iPhone funktionieren Benachrichtigungen nur, wenn die Seite als App auf dem Homescreen liegt:</p>
+    <ol>
+      <li>In Safari unten auf <b>Teilen</b> tippen</li>
+      <li><b>Zum Home-Bildschirm</b> wählen</li>
+      <li>Die App vom Homescreen öffnen und hier „Benachrichtigungen aktivieren“ tippen</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Konto</h2>
+    <div class="btns"><button id="logout">Abmelden</button></div>
+  </div>
+</div>
+<script src="/nav.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+if (isIOS && !standalone) $("installCard").hidden = false;
+
+function b64ToBytes(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const s = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(s, (c) => c.charCodeAt(0));
+}
+
+async function currentSub() {
+  if (!supported) return null;
+  const reg = await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+
+async function refresh() {
+  if (!supported) {
+    $("pushStatus").innerHTML = isIOS && !standalone
+      ? "<b>Nicht verfügbar:</b> erst als App auf dem Homescreen installieren (siehe unten)."
+      : "<b>Nicht verfügbar</b> in diesem Browser.";
+    ["enable", "test", "disable"].forEach((id) => ($(id).disabled = true));
+    return;
+  }
+  const sub = await currentSub();
+  const perm = Notification.permission;
+  $("pushStatus").innerHTML =
+    perm === "denied" ? "<b>Blockiert.</b> In den iOS-Einstellungen unter Mitteilungen für floating.mana erlauben."
+    : sub ? "<b>Aktiv</b> auf diesem Gerät."
+    : "<b>Aus</b> auf diesem Gerät.";
+  $("enable").hidden = Boolean(sub);
+  $("disable").hidden = !sub;
+  $("test").disabled = !sub;
+}
+
+$("enable").onclick = async () => {
+  $("enable").disabled = true;
+  try {
+    // Muss direkt durch den Tipp ausgeloest werden (iOS-Vorgabe)
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") throw new Error("Berechtigung nicht erteilt");
+    const { publicKey } = await (await fetch("/api/push/key")).json();
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+    const r = await fetch("/api/push/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sub) });
+    if (!r.ok) throw new Error("Server hat das Abo abgelehnt");
+    $("msg").textContent = "Aktiviert.";
+  } catch (err) {
+    $("msg").textContent = err.message;
+  } finally {
+    $("enable").disabled = false;
+    refresh();
+  }
+};
+
+$("test").onclick = async () => {
+  $("test").disabled = true;
+  const r = await fetch("/api/push/test", { method: "POST" });
+  $("msg").textContent = r.ok ? "Gesendet, sollte gleich ankommen." : "Senden fehlgeschlagen.";
+  $("test").disabled = false;
+};
+
+$("disable").onclick = async () => {
+  const sub = await currentSub();
+  if (sub) {
+    await fetch("/api/push/unsubscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }) });
+    await sub.unsubscribe();
+  }
+  $("msg").textContent = "Deaktiviert.";
+  refresh();
+};
+
+$("logout").onclick = async () => {
+  await fetch("/api/logout", { method: "POST" });
+  location.href = "/login.html";
+};
+
+refresh();
+</script>
+</body>
+</html>

@@ -12,12 +12,14 @@ import {
 import { draftReply } from "../llm/replyDrafter";
 import { refreshTokenIfDue } from "../instagram/token";
 import { isSpamComment } from "./spam";
+import { notify } from "../push/push";
 import { ensureDailyDrafts } from "../sourcing/dailyDeck";
 import { nanoid } from "nanoid";
 import {
   addItem,
   dueApprovedItems,
   isCommentSeen,
+  listItems,
   markCommentSeen,
   QueueItem,
   updateItem,
@@ -71,8 +73,37 @@ async function publishDue(): Promise<void> {
       const error = err instanceof Error ? err.message : String(err);
       updateItem(item.id, { status: "failed", error });
       console.error(`[scheduler] ${item.kind} ${item.id} failed: ${error}`);
+      await notify({
+        title: "Veröffentlichen fehlgeschlagen",
+        body: `${item.label ?? item.kind}: ${error.slice(0, 120)}`,
+        tag: `failed-${item.id}`,
+      }).catch(() => undefined);
     }
   }
+}
+
+/** Erinnerung, wenn ein Post in den naechsten 3 Stunden faellig, aber noch nicht freigegeben ist. */
+async function remindPendingDrafts(): Promise<void> {
+  const soon = Date.now() + 3 * 3600_000;
+  const pending = listItems().filter(
+    (i) =>
+      i.status === "draft" &&
+      i.kind !== "comment_reply" &&
+      !i.remindedAt &&
+      new Date(i.scheduledAt).getTime() <= soon
+  );
+  if (!pending.length) return;
+  pending.forEach((i) => updateItem(i.id, { remindedAt: new Date().toISOString() }));
+  const first = pending[0];
+  const time = new Date(first.scheduledAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  await notify({
+    title: "Freigabe nötig",
+    body:
+      pending.length === 1
+        ? `${first.label ?? first.kind} soll um ${time} raus, ist aber noch nicht freigegeben.`
+        : `${pending.length} Posts sind bald fällig und noch nicht freigegeben.`,
+    tag: "reminder",
+  });
 }
 
 let lastCommentPoll = 0;
@@ -82,6 +113,7 @@ async function pollComments(): Promise<void> {
   lastCommentPoll = Date.now();
 
   const comments = await fetchRecentComments();
+  const newReplies: string[] = [];
   for (const c of comments) {
     if (c.repliedByMe || isCommentSeen(c.id)) continue;
     markCommentSeen(c.id);
@@ -129,6 +161,16 @@ async function pollComments(): Promise<void> {
       replyText,
       label: `Reply to @${c.username}`,
     });
+    newReplies.push(c.username);
+  }
+  if (newReplies.length) {
+    await notify({
+      title: newReplies.length === 1 ? `Neuer Kommentar von @${newReplies[0]}` : `${newReplies.length} neue Kommentare`,
+      body: config.autoReply
+        ? `Antwort geht in ${config.autoReplyDelayMin} min automatisch raus. Tippen zum Prüfen.`
+        : "Antwortentwurf wartet auf Freigabe.",
+      tag: "comments",
+    }).catch(() => undefined);
   }
 }
 
@@ -145,6 +187,7 @@ async function tick(): Promise<void> {
         await refreshTokenIfDue().catch((err) => console.error("[scheduler]", err.message));
       }
       await publishDue();
+      await remindPendingDrafts().catch((err) => console.error("[push]", err));
       await pollComments().catch((err) => console.error("[scheduler] comments:", err.message));
     }
   } catch (err) {

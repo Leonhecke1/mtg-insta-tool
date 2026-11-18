@@ -1,5 +1,5 @@
 import * as path from "path";
-import express, { NextFunction, Request, Response } from "express";
+import express from "express";
 import { nanoid } from "nanoid";
 import { config } from "./config";
 import { renderDeckTech, runPipeline } from "./pipeline";
@@ -19,8 +19,18 @@ import {
 import { mediaUrls, startScheduler } from "./queue/scheduler";
 import { fetchNextDeck } from "./sourcing/dailyDeck";
 import * as fs from "fs";
+import { authEnabled, handleLogin, handleLogout, requireAuth } from "./auth";
+import {
+  addSubscription,
+  notify,
+  removeSubscription,
+  subscriptionCount,
+  vapidPublicKey,
+} from "./push/push";
 
 const app = express();
+// Hinter Caddy: echte Client-IP und https-Erkennung (Secure-Cookie)
+app.set("trust proxy", true);
 app.use(express.json({ limit: "2mb" }));
 
 // --- Oeffentliche Media-URLs fuer die Instagram-API (VOR Basic Auth) ---
@@ -35,23 +45,46 @@ app.get("/media/:token/:file", (req, res) => {
   res.sendFile(item.mediaFiles[index]);
 });
 
-// --- Basic Auth (Tool laeuft oeffentlich auf einem Server, siehe README) ---
-if (config.basicAuthUser && config.basicAuthPass) {
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    const header = req.headers.authorization ?? "";
-    const expected =
-      "Basic " + Buffer.from(`${config.basicAuthUser}:${config.basicAuthPass}`).toString("base64");
-    if (header === expected) return next();
-    res.set("WWW-Authenticate", 'Basic realm="mtg-insta-tool"');
-    res.status(401).send("Auth required");
-  });
+// --- Login (Cookie statt Basic Auth, damit die iOS-Web-App funktioniert) ---
+app.post("/api/login", handleLogin);
+app.post("/api/logout", handleLogout);
+if (authEnabled()) {
+  app.use(requireAuth);
 } else {
   console.warn(
     "[server] BASIC_AUTH_USER/BASIC_AUTH_PASS not set - web UI is reachable WITHOUT password protection!"
   );
 }
 
-app.use(express.static(path.join(__dirname, "..", "public")));
+app.use(
+  express.static(path.join(__dirname, "..", "public"), {
+    setHeaders: (res, file) => {
+      // Service Worker nie cachen, sonst kommen Updates nicht an
+      if (file.endsWith("sw.js")) res.setHeader("Cache-Control", "no-cache");
+    },
+  })
+);
+
+// --- Push-Benachrichtigungen ---
+app.get("/api/push/key", (_req, res) => {
+  res.json({ publicKey: vapidPublicKey(), subscriptions: subscriptionCount() });
+});
+app.post("/api/push/subscribe", (req, res) => {
+  const sub = req.body;
+  if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
+    return res.status(400).json({ error: "invalid subscription" });
+  }
+  addSubscription(sub);
+  res.json({ ok: true });
+});
+app.post("/api/push/unsubscribe", (req, res) => {
+  if (req.body?.endpoint) removeSubscription(req.body.endpoint);
+  res.json({ ok: true });
+});
+app.post("/api/push/test", async (_req, res) => {
+  await notify({ title: "floating.mana", body: "Benachrichtigungen funktionieren.", tag: "test" });
+  res.json({ ok: true, subscriptions: subscriptionCount() });
+});
 app.use("/out", express.static(config.outDir));
 
 function toSummary(job: Job) {

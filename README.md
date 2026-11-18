@@ -256,3 +256,18 @@ PIPER_MODEL=/opt/piper/en_US-ryan-medium.onnx   # Voice: .onnx + .onnx.json im s
 ```
 
 Ohne Piper bleiben Reels stumm.
+
+## Handy-App (iOS) und Benachrichtigungen
+
+- **Login:** Formular mit dauerhaftem Cookie statt Basic Auth. Basic Auth geht in iOS-Homescreen-Apps
+  nicht zuverlässig. Zugangsdaten bleiben `BASIC_AUTH_USER` / `BASIC_AUTH_PASS`. Für curl wird ein
+  Basic-Auth-Header weiterhin akzeptiert. Nach 5 Fehlversuchen ist die IP 5 Minuten gesperrt.
+- **Installieren:** In Safari `https://<domain>/queue.html` öffnen → Teilen → „Zum Home-Bildschirm“.
+- **Benachrichtigungen:** In der App unter Einstellungen → „Benachrichtigungen aktivieren“
+  (ab iOS 16.4, nur aus der Homescreen-App). Web Push mit eigenen VAPID-Schlüsseln
+  (`DATA_DIR/push.json`), kostenlos und ohne Fremddienst. Du bekommst eine Benachrichtigung bei:
+  - neuen Deck-Entwürfen
+  - einem Post, der in < 3 h fällig und noch nicht freigegeben ist
+  - neuen Kommentaren (nur mit LLM)
+  - fehlgeschlagenem Veröffentlichen
+- **Navigation:** Tab-Leiste unten (Freigabe / Erstellen / Einstellungen) mit Zähler offener Entwürfe.
