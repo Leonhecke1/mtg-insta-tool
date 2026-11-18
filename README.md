@@ -165,3 +165,61 @@ die einzige Datenquelle ist.
 - Kein automatischer Instagram-Publish (siehe oben) - `SPEC.md`s
   "Instagram-Publishing"-Abschnitt beschreibt einen Graph-API-Flow, der
   bewusst nicht Teil dieses Tools ist.
+
+## Auto-Publishing mit Freigabe
+
+Freigabe-Seite: `/queue.html`. Nur freigegebene Einträge werden veröffentlicht.
+Der Scheduler läuft im Server-Prozess. Er postet freigegebene Carousels,
+Bilder, Stories und Reels zur geplanten Zeit und legt alle 15 min
+Antwort-Entwürfe auf neue Kommentare unter eigenen Posts an.
+
+`.env`:
+
+```
+IG_USER_ID=...            # Instagram-Professional-Account-ID
+IG_ACCESS_TOKEN=...       # Long-lived Token ("Instagram API with Instagram Login"), läuft nach 60 Tagen ab
+IG_API_VERSION=v23.0      # gegen aktuelle Meta-Doku prüfen
+PUBLIC_BASE_URL=https://dein-server.de   # öffentlich erreichbar, Instagram lädt /media/<token>/<n>.jpg
+SCHEDULER_INTERVAL_SEC=60
+COMMENT_POLL_MINUTES=15
+```
+
+Ohne diese Variablen ist Auto-Publishing deaktiviert. Die Seite funktioniert trotzdem,
+es wird nur nichts gepostet.
+
+### Reels
+
+In `/queue.html` als Typ „Reel“ wählen und einen Hook eingeben. Das Tool rendert
+ein 9:16-Reel (1080×1920, ca. 16 s): Commander-Karte auf geblurrtem Artwork mit
+dem Hook als Textbox, danach Slides 2–6 mit langsamem Zoom. ffmpeg kommt aus
+`ffmpeg-static`. Auf dem Server muss dessen Install-Skript einmal laufen dürfen
+(`npm approve-scripts ffmpeg-static`), sonst fehlt die Binary. Die Tonspur ist
+still, weil die API keine Trend-Audio setzen kann.
+
+### Token-Verlängerung
+
+Der Scheduler verlängert den Long-lived-Token automatisch alle 7 Tage und speichert
+ihn in `DATA_DIR/ig-token.json`. Wird in der `.env` ein neuer `IG_ACCESS_TOKEN`
+eingetragen, hat dieser Vorrang.
+
+### Täglicher Deck-Post
+
+Mit `DAILY_DECKS=true` legt der Server für die nächsten Tage je einen Carousel-Entwurf
+(plus Story) in `/queue.html` an. Ein abgelehnter Entwurf wird beim nächsten Lauf
+durch ein anderes Deck ersetzt.
+
+Quelle ist Archidekt: zuerst eigene, noch nicht gepostete Decks, dann beliebte
+Community-Decks (Bracket ≤ 3 oder ohne Angabe, kein cEDH-Tag, unter Budget,
+Commander noch nie gepostet). Fremde Decks bekommen immer einen Credit an den
+Ersteller in der Caption. Moxfield wird nicht automatisch abgefragt.
+
+```
+DAILY_DECKS=true
+DAILY_POST_HOUR=19          # Serverzeit; ggf. TZ=Europe/Berlin setzen
+DAILY_LOOKAHEAD_DAYS=3
+DAILY_BUDGET_MAX_EUR=250
+DAILY_STORY=true
+ARCHIDEKT_OWN_USERNAME=floating.mana
+```
+
+Mit `ANTHROPIC_API_KEY` schreibt das LLM Tagline, Gameplan und Caption, ohne Key gibt es nur Platzhaltertexte.

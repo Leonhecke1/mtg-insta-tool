@@ -49,3 +49,42 @@ export async function renderSlidesToFiles(
 
   return files;
 }
+
+/**
+ * Die Instagram-API akzeptiert fuer Bilder nur JPEG. Erzeugt zu jeder PNG
+ * eine gleichnamige .jpg daneben (falls noch nicht vorhanden) und gibt die
+ * JPEG-Pfade in derselben Reihenfolge zurueck.
+ */
+export async function ensureJpegs(pngFiles: string[]): Promise<string[]> {
+  const jpgFiles = pngFiles.map((f) => f.replace(/\.png$/i, ".jpg"));
+  const missing = pngFiles.filter((_, i) => !fs.existsSync(jpgFiles[i]));
+  if (missing.length === 0) return jpgFiles;
+
+  let browser: Browser | null = null;
+  try {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+    const page = await browser.newPage();
+    await page.setViewport({ width: SLIDE_WIDTH, height: SLIDE_HEIGHT, deviceScaleFactor: 1 });
+
+    for (let i = 0; i < pngFiles.length; i++) {
+      if (fs.existsSync(jpgFiles[i])) continue;
+      const b64 = fs.readFileSync(pngFiles[i]).toString("base64");
+      await page.setContent(
+        `<html><body style="margin:0"><img src="data:image/png;base64,${b64}" style="display:block;width:${SLIDE_WIDTH}px;height:${SLIDE_HEIGHT}px"></body></html>`,
+        { waitUntil: "load" }
+      );
+      await page.screenshot({
+        path: jpgFiles[i] as `${string}.jpeg`,
+        type: "jpeg",
+        quality: 92,
+        clip: { x: 0, y: 0, width: SLIDE_WIDTH, height: SLIDE_HEIGHT },
+      });
+    }
+  } finally {
+    if (browser) await browser.close();
+  }
+  return jpgFiles;
+}
