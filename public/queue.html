@@ -51,6 +51,7 @@
     width: 100%; padding: 10px 12px; border: 1px solid #D5CBB5; border-radius: 10px; background: #fff; color: var(--ink);
   }
   textarea { min-height: 120px; resize: vertical; line-height: 1.4; }
+  [hidden] { display: none !important; }
 
   .day { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 20px 4px 8px; }
 
@@ -124,10 +125,12 @@
         <option value="carousel">Carousel</option>
         <option value="story">Story (1. Slide)</option>
         <option value="image">Einzelbild</option>
-        <option value="reel">Reel (Karte + Slides)</option>
+        <option value="reel">Reel (Deck)</option>
+        <option value="combo">Combo-Reel (Spellbook)</option>
       </select>
       <input type="datetime-local" id="whenInp" aria-label="Zeitpunkt" />
       <input type="text" id="hookInp" placeholder="Hook fürs Reel (leer = Tagline)" />
+      <input type="url" id="comboInp" placeholder="Commander-Spellbook-Link (leer = automatisch neue Combo)" hidden />
       <button id="addBtn">Als Entwurf anlegen</button>
     </div>
     <div class="err" id="addErr"></div>
@@ -159,7 +162,7 @@ async function api(method, url, body) {
   const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
   const data = await r.json().catch(() => ({}));
   if (r.status === 401) { location.href = "/login.html?next=" + encodeURIComponent(location.pathname); throw new Error("login required"); }
-  if (!r.ok) throw new Error(data.error || r.status);
+  if (!r.ok) { const e = new Error(data.error || r.status); e.status = r.status; e.data = data; throw e; }
   return data;
 }
 
@@ -199,7 +202,8 @@ function preview(it) {
   const vid = it.previewUrls.find((u) => u.endsWith(".mp4"));
   if (vid) {
     const poster = it.previewUrls.find((u) => !u.endsWith(".mp4"));
-    return `<div class="thumbs"><video src="${vid}" ${poster ? `poster="${poster}"` : ""} controls playsinline preload="none"></video></div>`;
+    // stumm automatisch abspielen, damit sofort sichtbar ist, dass es ein Video ist
+    return `<div class="thumbs"><video src="${vid}" ${poster ? `poster="${poster}"` : ""} controls playsinline muted autoplay loop preload="metadata"></video></div>`;
   }
   const items = it.previewUrls.map((u) =>
     u.endsWith(".mp4")
@@ -355,20 +359,55 @@ window.addEventListener("tasks-done", () => load(true));
   const jobs = await api("GET", "/api/jobs");
   document.getElementById("jobSel").innerHTML = jobs.filter((j) => j.status === "ready")
     .map((j) => `<option value="${j.id}">${esc(j.deckSummary?.commander || j.id)}</option>`).join("");
-  const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(19, 0, 0, 0);
+  // Vorbelegung: naechster Tag ohne Deck-Post (News zaehlen nicht), Uhrzeit aus dem Wochenplan
+  const [queue, settings] = await Promise.all([api("GET", "/api/queue"), api("GET", "/api/settings/app").catch(() => null)]);
+  const dayKey = (x) => x.getFullYear() + "-" + x.getMonth() + "-" + x.getDate();
+  const taken = new Set(queue
+    .filter((i) => (i.kind === "reel" || i.kind === "carousel") && i.origin !== "news" && i.status !== "rejected")
+    .map((i) => dayKey(new Date(i.scheduledAt))));
+  const d = new Date(); d.setDate(d.getDate() + 1);
+  for (let n = 0; n < 60 && taken.has(dayKey(d)); n++) d.setDate(d.getDate() + 1);
+  const [h, m] = ((settings && settings.schedule && settings.schedule[d.getDay()] && settings.schedule[d.getDay()].time) || "19:00").split(":").map(Number);
+  d.setHours(h, m, 0, 0);
   document.getElementById("whenInp").value = toLocal(d.toISOString());
 })();
+
+// Combo-Reel braucht kein Deck, sondern einen Spellbook-Link
+document.getElementById("kindSel").addEventListener("change", (e) => {
+  const combo = e.target.value === "combo";
+  document.getElementById("jobSel").hidden = combo;
+  document.getElementById("hookInp").hidden = combo || e.target.value !== "reel";
+  document.getElementById("comboInp").hidden = !combo;
+});
 
 document.getElementById("addBtn").onclick = async () => {
   const btn = document.getElementById("addBtn");
   btn.disabled = true;
   try {
-    await api("POST", "/api/queue", {
+    const isCombo = document.getElementById("kindSel").value === "combo";
+    const url = isCombo ? "/api/queue/combo" : "/api/queue";
+    const payload = isCombo ? {
+      url: document.getElementById("comboInp").value.trim() || undefined,
+      scheduledAt: new Date(document.getElementById("whenInp").value).toISOString(),
+    } : {
       jobId: document.getElementById("jobSel").value,
       kind: document.getElementById("kindSel").value,
       scheduledAt: new Date(document.getElementById("whenInp").value).toISOString(),
       hook: document.getElementById("hookInp").value || undefined,
-    });
+    };
+    try {
+      await api("POST", url, payload);
+    } catch (err) {
+      if (err.status !== 409 || !err.data || !err.data.conflict) throw err;
+      // Doppelter Deck-Post: nachfragen und nur auf Wunsch trotzdem anlegen
+      if (!confirm(err.message + "
+
+Trotzdem anlegen?")) {
+        document.getElementById("addErr").textContent = "Nicht angelegt. Anderen Tag wählen?";
+        return;
+      }
+      await api("POST", url, { ...payload, force: true });
+    }
     document.getElementById("addErr").textContent = "Läuft im Hintergrund, Fortschritt unten.";
     if (window.trackTasks) window.trackTasks();
   } catch (err) { document.getElementById("addErr").textContent = err.message; }

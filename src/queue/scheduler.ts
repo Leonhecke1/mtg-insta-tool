@@ -14,7 +14,7 @@ import { draftReply } from "../llm/replyDrafter";
 import { refreshTokenIfDue } from "../instagram/token";
 import { isSpamComment } from "./spam";
 import { getSettings } from "../settings/appSettings";
-import { pollNews } from "../news/news";
+import { lastNewsPollAt, pollNews } from "../news/news";
 import { notify } from "../push/push";
 import { ensureDailyDrafts, invalidateInstagramHistory } from "../sourcing/dailyDeck";
 import { nanoid } from "nanoid";
@@ -186,17 +186,19 @@ async function pollComments(): Promise<void> {
 
 let lastTokenCheck = 0;
 let lastDailyCheck = 0;
-let lastNewsPoll = 0;
+// -1 = noch nicht aus news.json gelesen. So fragt nicht jeder Neustart Scryfall ab.
+let lastNewsPoll = -1;
 let newsRunning = false;
 
 /** MTG-News regelmaessig abrufen (Intervall in den Einstellungen, Standard 6 h) */
 async function newsTick(): Promise<void> {
+  if (lastNewsPoll < 0) lastNewsPoll = lastNewsPollAt();
   if (!getSettings().newsEnabled || newsRunning || Date.now() - lastNewsPoll < getSettings().newsIntervalHours * 3600_000) return;
   newsRunning = true;
   lastNewsPoll = Date.now();
   try {
-    const n = await pollNews();
-    if (n) console.log(`[news] ${n} new item(s)`);
+    const r = await pollNews();
+    console.log(`[news] ${r.fresh} new, ${r.drafted} drafted, ${r.pendingCards} pending cards${r.baseline ? `, baseline ${r.baseline} sets` : ""}${r.errors.length ? `, errors: ${r.errors.join("; ")}` : ""}`);
   } catch (err) {
     console.error("[news]", err instanceof Error ? err.message : err);
   } finally {

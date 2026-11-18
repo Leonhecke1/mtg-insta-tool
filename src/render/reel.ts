@@ -4,11 +4,13 @@ import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import puppeteer, { Browser } from "puppeteer";
 import { config } from "../config";
+import { spawnFfmpeg } from "./procs";
 import { Deck } from "../types";
 import { analyzeDeck, cardRole, DeckAnalysis, shortName } from "../llm/fallback";
 
 const ENGINE_INTRO: Record<number, string> = { 1: "One card makes it work.", 2: "Two cards make it work.", 3: "Three cards make it work." };
 import { applyPronunciation } from "../settings/pronunciation";
+import { optimizeForSpeech } from "../skills/ttsText";
 import { getSettings } from "../settings/appSettings";
 import { escapeHtml } from "./components";
 import { FONT_STACK, MANA_CIRCLE_COLORS } from "./theme";
@@ -111,7 +113,7 @@ function symbolWord(sym: string): string {
  * Manakosten in Sprache: "{1}, Sacrifice an artifact: X" -> "Pay one, sacrifice
  * an artifact: X", "{T}: Add {G}" -> "Tap: add green".
  */
-function manaToWords(s: string): string {
+export function manaToWords(s: string): string {
   return s
     .replace(/(^|[.!]\s+)((?:\{[^}]+\})+)(?=[,:])/g, (_m, pre: string, cost: string) => {
       const syms = cost.match(/\{[^}]+\}/g) ?? [];
@@ -122,13 +124,14 @@ function manaToWords(s: string): string {
     .replace(/(?:\{[^}]+\})+/g, (cost) => (cost.match(/\{[^}]+\}/g) ?? []).map(symbolWord).join(" "));
 }
 
-function speakable(s: string): string {
-  // Erst die eigenen Aussprache-Regeln (Einstellungen), dann aufraeumen
-  return applyPronunciation(
+export function speakable(s: string): string {
+
+  // Reihenfolge: Mana -> eigene Aussprache-Regeln -> Sprech-Optimierung (Pausen, Abkuerzungen, lange Saetze)
+  return optimizeForSpeech(applyPronunciation(
     manaToWords(s)
       .replace(/€\s?(\d+)/g, "$1 euros")
       .replace(/&/g, " and ")
-  )
+  ))
     .replace(/[^\p{L}\p{N}\s.,!?'+-]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -665,13 +668,8 @@ export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = 
     "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", out
   );
 
-  const ff = spawn(ffmpegPath, args);
-  let ffErr = "";
-  ff.stderr.on("data", (d) => (ffErr = (ffErr + d).slice(-4000)));
-  const ffDone = new Promise<void>((resolve, reject) => {
-    ff.on("error", reject);
-    ff.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exit ${code}: ${ffErr.slice(-800)}`))));
-  });
+  // spawnFfmpeg: Abbruch fuehrt nie zu einer unbehandelten Ablehnung (Server-Absturz)
+  const { proc: ff, done: ffDone } = spawnFfmpeg(ffmpegPath, args);
 
   // 4. Seite rendern und Bild fuer Bild aufnehmen
   let browser: Browser | null = null;
@@ -689,13 +687,13 @@ export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = 
       const buf = (await page.screenshot({ type: "jpeg", quality: 90 })) as Buffer;
       // Titelbild aus der Hook-Szene (Vorschau in der App + Reel-Cover bei Instagram)
       if (f === coverFrame) fs.writeFileSync(reelCoverPath(out), buf);
-      if (!ff.stdin.write(buf)) await new Promise((r) => ff.stdin.once("drain", r));
+      if (!ff.stdin!.write(buf)) await new Promise((r) => ff.stdin!.once("drain", r));
     }
   } catch (err) {
     ff.kill("SIGKILL");
     throw err;
   } finally {
-    ff.stdin.end();
+    ff.stdin!.end();
     if (browser) await browser.close();
   }
   report("Reel: Video wird fertig kodiert", 0.96);
@@ -718,7 +716,7 @@ export function ttsEnabled(): boolean {
   return Boolean(config.piperBin && config.piperModel);
 }
 
-async function synthesizeVoice(
+export async function synthesizeVoice(
   text: string,
   jobDir: string,
   fileName: string
@@ -727,7 +725,7 @@ async function synthesizeVoice(
   const file = path.join(jobDir, fileName);
   {
     await new Promise<void>((resolve, reject) => {
-      const p = spawn(config.piperBin, ["--model", config.piperModel, "--output_file", file]);
+      const p = spawn(config.piperBin, ["--model", config.piperModel, "--output_file", file, "--sentence_silence", String(config.piperSentenceSilence), "--length_scale", String(config.piperLengthScale)]);
       let stderr = "";
       p.stderr.on("data", (d) => (stderr += d));
       p.on("error", reject);

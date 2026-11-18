@@ -340,3 +340,9 @@ Optionen → News) oder per „Jetzt nach News suchen“.
 
 News-Entwürfe kommen **zusätzlich** zum Wochenplan und blockieren keinen Tag. Keine Leaks: Scryfall
 zeigt nur offiziell gespoilerte Karten.
+
+## Combo-Reels (Commander Spellbook)
+
+Typ „Combo-Reel“ im Wochenplan oder unter „Eigenen Post einplanen“ (Spellbook-Link, leer = automatisch).
+Code: `src/combos/spellbook.ts` (API + Auswahl), `src/combos/comboDraft.ts` (Entwurf), `src/render/comboReel.ts` (Video).
+Der Sprechtext läuft wie bei Deck-Reels durch `src/skills/ttsText.ts` und die Aussprache-Regeln.

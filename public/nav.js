@@ -76,6 +76,7 @@
     .task .acts { display: flex; gap: 14px; margin-top: 4px; }
     .task.slim { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
     .task.slim b { flex: 1; min-width: 0; font-size: 13px; }
+    .task.slim b small { display: block; font-weight: 400; opacity: .85; font-size: 12px; }
     .task.slim .err { font-size: 12px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
     .task.slim button[data-dismiss] { text-decoration: none; font-size: 20px; line-height: 1; padding: 0 2px; }
   `;
@@ -126,7 +127,7 @@
       const ok = t.status === "done";
       // Fertig/Fehler als kompakte Zeile, damit nichts verdeckt wird
       return `<div class="task slim ${ok ? "done" : "failed"}">
-        <span class="ok">${ok ? "✓" : "✕"}</span><b>${esc(t.label)}</b>
+        <span class="ok">${ok ? "✓" : "✕"}</span><b>${esc(t.label)}${ok && t.summary ? `<small>${esc(t.summary)}</small>` : ""}</b>
         ${ok ? (location.pathname !== "/queue.html" ? '<a href="/queue.html">Ansehen</a>' : "") : `<span class="err" title="${esc(t.error)}">${esc((t.error || "").slice(0, 40))}</span>`}
         <button data-dismiss="${t.id}" aria-label="Ausblenden">×</button></div>`;
     }).join("");

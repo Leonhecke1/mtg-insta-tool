@@ -8,7 +8,8 @@ import { config } from "../config";
  * der .env sind nur noch die Startwerte, bis zum ersten Speichern in der App.
  */
 
-export type DayKind = "reel" | "carousel" | "none";
+/** combo = Combo-Reel (Commander Spellbook) statt Deck */
+export type DayKind = "reel" | "carousel" | "combo" | "none";
 
 export interface DaySlot {
   kind: DayKind;
@@ -98,7 +99,7 @@ function sanitize(s: Partial<AppSettings>): AppSettings {
   const d = envDefaults();
   const schedule = Array.from({ length: 7 }, (_, i) => {
     const slot = Array.isArray(s.schedule) ? s.schedule[i] : undefined;
-    const kind: DayKind = slot && ["reel", "carousel", "none"].includes(slot.kind) ? slot.kind : d.schedule[i].kind;
+    const kind: DayKind = slot && ["reel", "carousel", "combo", "none"].includes(slot.kind) ? slot.kind : d.schedule[i].kind;
     const time = slot && /^([01]\d|2[0-3]):[0-5]\d$/.test(String(slot.time)) ? String(slot.time) : d.schedule[i].time;
     return { kind, time };
   });

@@ -52,7 +52,19 @@ interface Store {
   lastPoll?: string;
   /** Neue Karten, die noch auf ein Spoiler-Paket warten (pro Set) */
   pending?: Record<string, { name: string; releasedAt?: string; since: string; cards: SpoilerCard[] }>;
+  /** Erster Spoiler-Abgleich erledigt (vorher: aktueller Stand nur als Feed) */
+  spoilerBaselineDone?: boolean;
 }
+
+/** Ergebnis eines Abrufs, fuer die Rueckmeldung in der App */
+export interface PollResult {
+  fresh: number;
+  drafted: number;
+  baseline: number; // > 0 = erster Abruf, so viele Sets als Feed angelegt
+  pendingCards: number; // neue Karten, die noch auf ein Spoiler-Paket warten
+  errors: string[];
+}
+const lastRunInfo = { baseline: 0 };
 
 const UA = "mtg-insta-tool/0.1 (+https://github.com/)";
 const file = () => path.join(config.dataDir, "news.json");
@@ -78,19 +90,38 @@ function save(): void {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function scryfall<T = any>(url: string): Promise<T> {
-  await sleep(120); // Scryfall bittet um max. ~10 Anfragen pro Sekunde
-  const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" } });
+// Scryfall drosselt hart (429 + Drohung mit Sperre). Deshalb: alle Anfragen
+// nacheinander, mind. 300 ms Abstand, nach einem 429 automatisch 65 s Pause.
+const MIN_GAP_MS = 300;
+let nextSlot = 0;
+let cooldownUntil = 0;
+
+export async function scryfall<T = any>(url: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  if (Date.now() < cooldownUntil) {
+    throw new Error(`Scryfall-Pause wegen zu vieler Anfragen, bitte nach ${new Date(cooldownUntil).toLocaleTimeString("de-DE")} erneut versuchen`);
+  }
+  const wait = Math.max(0, nextSlot - Date.now());
+  nextSlot = Math.max(Date.now(), nextSlot) + MIN_GAP_MS;
+  if (wait) await sleep(wait);
+  const res = await fetch(url, {
+    method: init.method ?? "GET",
+    headers: { "User-Agent": UA, Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}) },
+    body: init.body ? JSON.stringify(init.body) : undefined,
+  });
   const body: any = await res.json().catch(() => ({}));
+  if (res.status === 429) {
+    cooldownUntil = Date.now() + 65_000;
+    throw new Error("Scryfall-Pause wegen zu vieler Anfragen (ca. 1 Minute)");
+  }
   if (res.status === 404 && body?.object === "error") return { data: [], has_more: false } as T; // keine Treffer
   if (!res.ok) throw new Error(`Scryfall ${res.status}: ${body?.details ?? ""}`);
   return body as T;
 }
 
-async function searchAll(q: string): Promise<any[]> {
+async function searchAll(q: string, maxCards = 1500): Promise<any[]> {
   let url: string | null = `https://api.scryfall.com/cards/search?unique=cards&order=released&q=${encodeURIComponent(q)}`;
   const out: any[] = [];
-  while (url && out.length < 1500) {
+  while (url && out.length < maxCards) {
     const page: any = await scryfall(url);
     out.push(...(page.data ?? []));
     url = page.has_more ? page.next_page : null;
@@ -98,12 +129,12 @@ async function searchAll(q: string): Promise<any[]> {
   return out;
 }
 
-function cardImages(c: any): { image?: string; art?: string } {
+export function cardImages(c: any): { image?: string; art?: string } {
   const face = c.image_uris ?? c.card_faces?.[0]?.image_uris;
   return { image: face?.normal, art: face?.art_crop };
 }
 
-function oracle(c: any): string {
+export function oracle(c: any): string {
   return (c.oracle_text ?? c.card_faces?.map((f: any) => f.oracle_text).join("\n") ?? "").replace(/\([^)]*\)/g, "").trim();
 }
 
@@ -123,13 +154,17 @@ async function pollSpoilers(): Promise<NewsItem[]> {
   const s = load();
   s.pending ??= {};
   const today = new Date().toISOString().slice(0, 10);
-  const since7 = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const since2 = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
   const since30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const sets: any[] = (await scryfall<any>("https://api.scryfall.com/sets")).data ?? [];
   const relevant = sets.filter(
-    (x) => x.released_at >= since7 && ["expansion", "commander", "core", "draft_innovation", "masters", "funny"].includes(x.set_type)
+    // Spoiler sind nur bis kurz nach Release News: kommende Sets + 2 Tage danach
+    (x) => x.released_at >= since2 && ["expansion", "commander", "core", "draft_innovation", "masters", "funny"].includes(x.set_type)
   );
-  const firstRun = s.seenCards.length === 0;
+  // Erster Spoiler-Abgleich: aktuellen Stand als Feed zeigen (pro Set ein Paket),
+  // aber keine automatischen Entwuerfe und keine Push-Flut
+  const firstRun = !s.spoilerBaselineDone;
+  const baseline: Record<string, { name: string; releasedAt?: string; cards: SpoilerCard[] }> = {};
   const feed: NewsItem[] = [];
 
   const sources: { code: string; name: string; releasedAt?: string; query: string }[] = [
@@ -138,10 +173,16 @@ async function pollSpoilers(): Promise<NewsItem[]> {
   ];
 
   for (const src of sources) {
-    for (const c of await searchAll(src.query)) {
+    for (const c of await searchAll(src.query, 525)) {
+      if (firstRun) {
+        if (!s.seenCards.includes(c.id)) s.seenCards.push(c.id);
+        const b = (baseline[src.code] ??= { name: src.name, releasedAt: src.releasedAt ?? c.released_at, cards: [] });
+        const im = cardImages(c);
+        if (b.cards.length < 36) b.cards.push({ name: c.name, image: im.image, art: im.art, colors: c.color_identity });
+        continue;
+      }
       if (s.seenCards.includes(c.id)) continue;
       s.seenCards.push(c.id);
-      if (firstRun) continue; // erster Lauf: nur Basis merken, keine Flut
       const imgs = cardImages(c);
       const p = (s.pending[src.code] ??= { name: src.name, releasedAt: src.releasedAt ?? c.released_at, since: new Date().toISOString(), cards: [] });
       p.cards.push({ name: c.name, image: imgs.image, art: imgs.art, colors: c.color_identity });
@@ -163,6 +204,29 @@ async function pollSpoilers(): Promise<NewsItem[]> {
         );
       }
     }
+  }
+
+  if (firstRun) {
+    for (const [code, b] of Object.entries(baseline)) {
+      if (!b.cards.length) continue;
+      add({
+        type: "spoiler",
+        title: `${b.cards.length}${b.cards.length === 36 ? "+" : ""} cards revealed so far from ${b.name}`,
+        cards: b.cards,
+        art: b.cards[0].art,
+        image: b.cards[0].image,
+        setName: b.name,
+        setCode: code,
+        releasedAt: b.releasedAt,
+        colors: b.cards[0].colors,
+        url: `https://scryfall.com/sets/${code}`,
+        date: new Date().toISOString(),
+      });
+    }
+    s.spoilerBaselineDone = true;
+    s.pending = {};
+    lastRunInfo.baseline = Object.keys(baseline).length;
+    return [];
   }
 
   // Spoiler-Pakete schnueren
@@ -274,7 +338,7 @@ function decode(s: string): string {
     .trim();
 }
 
-let polling: Promise<number> | null = null;
+let polling: Promise<PollResult> | null = null;
 
 // Wird vom Server gesetzt (vermeidet zirkulaere Imports Render <-> News)
 let autoDrafter: ((item: NewsItem) => Promise<unknown>) | null = null;
@@ -282,11 +346,20 @@ export function setAutoDrafter(fn: (item: NewsItem) => Promise<unknown>): void {
   autoDrafter = fn;
 }
 
-/** Alle Quellen abfragen; liefert die Anzahl neuer Meldungen */
-export function pollNews(): Promise<number> {
+/** Zeitpunkt des letzten Abrufs (aus data/news.json, ueberlebt Neustarts) */
+export function lastNewsPollAt(): number {
+  const t = load().lastPoll;
+  return t ? new Date(t).getTime() || 0 : 0;
+}
+
+/** Alle Quellen abfragen */
+export function pollNews(): Promise<PollResult> {
   if (polling) return polling;
   polling = (async () => {
     const fresh: NewsItem[] = [];
+    const errors: string[] = [];
+    let drafted = 0;
+    lastRunInfo.baseline = 0;
     for (const step of [
       () => pollSpoilers(),
       () => pollList("banned:commander", "banned", "ban", "unban"),
@@ -296,7 +369,9 @@ export function pollNews(): Promise<number> {
       try {
         fresh.push(...(await step()));
       } catch (err) {
-        console.error("[news]", err instanceof Error ? err.message : err);
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(msg);
+        console.error("[news]", msg);
       }
     }
     load().lastPoll = new Date().toISOString();
@@ -305,7 +380,13 @@ export function pollNews(): Promise<number> {
     // Zusaetzliche Entwuerfe (ersetzen keine Tagesposts): Spoiler-Pakete und Listen-Aenderungen
     if (getSettings().newsAutoDraft && autoDrafter) {
       for (const it of fresh.filter((f) => ["spoiler", "ban", "unban", "gamechanger", "gamechanger_removed"].includes(f.type))) {
-        await autoDrafter(it).catch((err) => console.error("[news] auto draft failed:", err instanceof Error ? err.message : err));
+        await autoDrafter(it)
+          .then(() => drafted++)
+          .catch((err) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            errors.push(`Entwurf: ${msg}`);
+            console.error("[news] auto draft failed:", msg);
+          });
       }
     }
     if (fresh.length && getSettings().newsPush) {
@@ -317,7 +398,8 @@ export function pollNews(): Promise<number> {
         tag: "news",
       }).catch(() => undefined);
     }
-    return fresh.length;
+    const pendingCards = Object.values(load().pending ?? {}).reduce((n, p) => n + p.cards.length, 0);
+    return { fresh: fresh.length, drafted, baseline: lastRunInfo.baseline, pendingCards, errors };
   })().finally(() => (polling = null));
   return polling;
 }
@@ -347,15 +429,18 @@ export async function customNews(input: string, title: string): Promise<NewsItem
   const lines = input.split("\n").map((l) => l.trim()).filter(Boolean);
   const isQuery = lines.length === 1 && /[:<>=]/.test(lines[0]);
   const cards: any[] = [];
+  const missing: string[] = [];
   if (isQuery) {
     cards.push(...(await searchAll(lines[0])).slice(0, 36));
   } else {
     for (const name of lines.slice(0, 36)) {
-      const c: any = await scryfall(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`).catch(() => null);
+      // nur "nicht gefunden" ueberspringen, echte Fehler (z. B. Drosselung) melden
+      const c: any = await scryfall(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
+      if (!c?.name) missing.push(name);
       if (c?.name) cards.push(c);
     }
   }
-  if (!cards.length) throw new Error("Keine Karten auf Scryfall gefunden");
+  if (!cards.length) throw new Error(`Keine Karten auf Scryfall gefunden${missing.length ? `: ${missing.join(", ")}` : ""}`);
   const first = cards[0];
   const imgs = cardImages(first);
   const sameSet = cards.every((c) => c.set === first.set);

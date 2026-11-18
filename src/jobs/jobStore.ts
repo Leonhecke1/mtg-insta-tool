@@ -17,6 +17,13 @@ function getDb(): LowdbSync<Schema> {
   const adapter = new FileSync<Schema>(path.join(config.dataDir, "jobs.json"));
   db = low(adapter);
   db.defaults({ jobs: [] }).write();
+  // Nach einem Neustart laeuft kein Job mehr: haengende "generating" als fehlgeschlagen markieren
+  const stuck = db.get("jobs").value().filter((j) => j.status === "generating");
+  if (stuck.length) {
+    stuck.forEach((j) => Object.assign(j, { status: "failed", error: "Abgebrochen durch Neustart" }));
+    db.write();
+    console.warn(`[jobs] ${stuck.length} haengende(n) Job(s) als fehlgeschlagen markiert`);
+  }
   return db;
 }
 
@@ -36,4 +43,9 @@ export function getJob(id: string): Job | undefined {
 
 export function listJobs(): Job[] {
   return [...getDb().get("jobs").value()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** Beim Start aufrufen, damit die Bereinigung sofort laeuft */
+export function initJobs(): void {
+  getDb();
 }

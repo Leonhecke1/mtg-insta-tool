@@ -3,7 +3,8 @@ import express from "express";
 import { nanoid } from "nanoid";
 import { config, instagramConfigured } from "./config";
 import { renderDeckTech, runPipeline } from "./pipeline";
-import { createJob, getJob, listJobs, updateJob } from "./jobs/jobStore";
+import { createJob, getJob, initJobs, listJobs, updateJob } from "./jobs/jobStore";
+import { killAllRenders } from "./render/procs";
 import { GeneratedTexts, Job } from "./types";
 import { ensureJpegs } from "./render/renderer";
 import { buildReel, reelCoverPath, reelScript } from "./render/reel";
@@ -17,7 +18,9 @@ import {
   updateItem,
 } from "./queue/queueStore";
 import { mediaUrls, runDailyNow, runSchedulerNow, startScheduler } from "./queue/scheduler";
-import { fetchNextDeck, planInfo } from "./sourcing/dailyDeck";
+import { fetchNextDeck, isDayTaken, planInfo } from "./sourcing/dailyDeck";
+import { draftCombo } from "./combos/comboDraft";
+import { comboIdFrom } from "./combos/spellbook";
 import { getTask, listTasks, startTask } from "./tasks/tasks";
 import { creditFromText, igCaption } from "./skills/igCaption";
 import { lintCaption } from "./skills/caption";
@@ -291,6 +294,22 @@ app.post("/api/queue", async (req, res) => {
   const scheduledAt = new Date(body.scheduledAt ?? Date.now());
   if (isNaN(scheduledAt.getTime())) return res.status(400).json({ error: "invalid scheduledAt" });
 
+  // Doppelte Deck-Posts verhindern (z. B. manuell eingeplant, was die Automatik gerade angelegt hat).
+  // Mit force: true trotzdem anlegen. News-Entwuerfe laufen nicht hierueber und bleiben zusaetzlich erlaubt.
+  if (["reel", "carousel", "image"].includes(kind) && !body.force) {
+    const problems: string[] = [];
+    if (isDayTaken(scheduledAt)) {
+      problems.push(`Am ${scheduledAt.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "numeric" })} ist schon ein Deck-Post geplant.`);
+    }
+    const sameJob = body.jobId
+      ? listItems().find((i) => i.sourceJobId === body.jobId && ["draft", "approved"].includes(i.status) && i.origin !== "news")
+      : undefined;
+    if (sameJob) {
+      problems.push(`Dieses Deck hat schon einen offenen Entwurf (${new Date(sameJob.scheduledAt).toLocaleDateString("de-DE")}).`);
+    }
+    if (problems.length) return res.status(409).json({ error: problems.join(" "), conflict: true });
+  }
+
   // Eingaben sofort pruefen, die langsame Arbeit laeuft als Hintergrund-Auftrag
   const job = body.jobId ? getJob(body.jobId) : undefined;
   let videoFile: string | undefined;
@@ -427,10 +446,23 @@ app.get("/api/news", (_req, res) => {
   res.json({ items: items.slice(0, 150), lastPoll });
 });
 app.post("/api/news/refresh", (_req, res) => {
-  const task = startTask("News abrufen", async (report) => {
-    report("Frage Scryfall und Feeds ab", null as unknown as number);
-    return { fresh: await pollNews() };
-  });
+  const task = startTask(
+    "News abrufen",
+    async (report) => {
+      report("Frage Scryfall und Feeds ab", 0.3);
+      return pollNews();
+    },
+    {
+      summary: (r) =>
+        r.baseline
+          ? `Erster Abruf: ${r.baseline} Set(s) im News-Feed, ab jetzt werden neue Spoiler zu Entwürfen`
+          : r.fresh
+          ? `${r.fresh} neue Meldung(en), ${r.drafted} Entwurf/Entwürfe`
+          : r.pendingCards
+          ? `${r.pendingCards} neue Karte(n) gesammelt, Carousel ab ${getSettings().spoilerMin} Karten oder nach 24 h`
+          : `Nichts Neues seit dem letzten Abruf${r.errors.length ? ` (Fehler: ${r.errors[0]})` : ""}`,
+    }
+  );
   res.status(202).json({ taskId: task.id });
 });
 /** Aus einer Meldung einen Entwurf machen (Feed-Bild oder Story) */
@@ -477,6 +509,7 @@ app.post("/api/news/:id/draft", (req, res) => {
   const format: NewsFormat = ["auto", "post", "story"].includes(req.body?.format) ? req.body.format : "auto";
   const task = startTask(`News: ${item.cardName ?? item.title}`, (report) => draftNewsItem(item, format, report), {
     notifyOnDone: (r) => `${r.label} wartet auf Freigabe.`,
+    summary: (r) => `Entwurf in der Freigabe: ${r.label}`,
   });
   res.status(202).json({ taskId: task.id });
 });
@@ -494,7 +527,7 @@ app.post("/api/news/custom", (req, res) => {
     report("Suche Karten auf Scryfall", 0.1);
     const item = await customNews(input, title);
     return draftNewsItem(item, format, report);
-  }, { notifyOnDone: (r) => `${r.label} wartet auf Freigabe.` });
+  }, { notifyOnDone: (r) => `${r.label} wartet auf Freigabe.`, summary: (r) => `Entwurf in der Freigabe: ${r.label}` });
   res.status(202).json({ taskId: task.id });
 });
 
@@ -523,12 +556,19 @@ app.post("/api/plan/apply", async (_req, res) => {
   res.json(saved);
 });
 /** Carousel-Entwuerfe an Reel-Tagen in Reels umwandeln (Hintergrund-Auftrag) */
+let converting = false;
 app.post("/api/plan/convert-drafts", (_req, res) => {
+  // Doppeltes Antippen darf nicht zwei Reels pro Entwurf erzeugen
+  if (converting) return res.status(409).json({ error: "Umwandlung läuft bereits" });
   const drafts = carouselDraftsOnReelDays();
   if (!drafts.length) return res.json({ converted: 0 });
+  converting = true;
   const task = startTask(`${drafts.length} Carousel(s) → Reel`, async (report) => {
     let done = 0;
+    try {
     for (const [i, item] of drafts.entries()) {
+      // inzwischen abgelehnt/umgewandelt? dann ueberspringen
+      if (getItem(item.id)?.status !== "draft") continue;
       const r = getJob(item.sourceJobId!)?.result;
       if (!r) continue;
       const video = await buildReel(r.deck, r.jobDir, {
@@ -550,8 +590,34 @@ app.post("/api/plan/convert-drafts", (_req, res) => {
       updateItem(item.id, { status: "rejected" });
       done++;
     }
+    } finally {
+      converting = false;
+    }
     return { converted: done };
   }, { notifyOnDone: (r) => `${r.converted} Reel(s) warten auf Freigabe.` });
+  res.status(202).json({ taskId: task.id });
+});
+
+/**
+ * Combo-Reel als Entwurf (Commander Spellbook).
+ * Body: { url?: Spellbook-Link oder ID (leer = automatisch neue Combo), scheduledAt, force? }
+ */
+app.post("/api/queue/combo", (req, res) => {
+  const body = req.body ?? {};
+  const url = typeof body.url === "string" ? body.url.trim() : "";
+  if (url && !comboIdFrom(url)) return res.status(400).json({ error: "Kein gültiger Commander-Spellbook-Link (z. B. commanderspellbook.com/combo/880-6529-6664/)" });
+  const when = new Date(body.scheduledAt ?? Date.now());
+  if (isNaN(when.getTime())) return res.status(400).json({ error: "invalid scheduledAt" });
+  if (!body.force && isDayTaken(when)) {
+    return res.status(409).json({
+      error: `Am ${when.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "numeric" })} ist schon ein Deck-Post geplant.`,
+      conflict: true,
+    });
+  }
+  const task = startTask(url ? "Combo-Reel" : "Combo-Reel (automatisch)", (report) => draftCombo(when, url || undefined, report), {
+    notifyOnDone: (r) => `${r.label} für ${new Date(r.scheduledAt).toLocaleDateString("de-DE")} wartet auf Freigabe.`,
+    summary: (r) => r.label,
+  });
   res.status(202).json({ taskId: task.id });
 });
 
@@ -619,7 +685,28 @@ app.post("/api/queue/:id/reject", (req, res) => {
   res.json(toQueueSummary(updateItem(item.id, { status: "rejected" })!));
 });
 
-app.listen(config.port, () => {
+// Sicherheitsnetz: ein vergessener Fehler in einem Hintergrund-Auftrag darf den Server nicht beenden
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] unhandled rejection:", reason instanceof Error ? reason.message : reason);
+});
+
+initJobs(); // haengende Jobs vom letzten Lauf als fehlgeschlagen markieren
+
+const server = app.listen(config.port, () => {
   console.log(`[server] mtg-insta-tool running on http://localhost:${config.port}`);
   startScheduler();
 });
+
+// systemctl restart/stop: laufende Renders beenden und sauber herunterfahren
+let stopping = false;
+for (const sig of ["SIGTERM", "SIGINT"] as const) {
+  process.on(sig, () => {
+    if (stopping) return;
+    stopping = true;
+    const n = killAllRenders();
+    console.log(`[server] ${sig}: fahre herunter${n ? ` (${n} Render-Prozess(e) beendet)` : ""}`);
+    server.close();
+    // Puppeteer-Browser werden beim Beenden des Prozesses mit beendet
+    setTimeout(() => process.exit(0), 300).unref();
+  });
+}

@@ -43,6 +43,9 @@ export const config = {
   // --- Voice-over fuer Reels (Piper, lokal und kostenlos) ---
   piperBin: optional("PIPER_BIN"),
   piperModel: optional("PIPER_MODEL"),
+  // Pause nach jedem Satz (Sekunden) und Sprechtempo (>1 = langsamer)
+  piperSentenceSilence: parseFloat(optional("PIPER_SENTENCE_SILENCE", "0.25")),
+  piperLengthScale: parseFloat(optional("PIPER_LENGTH_SCALE", "1.05")),
 
   // --- Taeglicher Deck-Post (Entwuerfe aus Archidekt) ---
   dailyDecks: optional("DAILY_DECKS", "false") === "true",

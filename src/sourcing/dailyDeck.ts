@@ -15,6 +15,7 @@ import { addItem, listItems } from "../queue/queueStore";
 import { Report, subReport } from "../tasks/tasks";
 import { creditFromText, igCaption } from "../skills/igCaption";
 import { getSettings, slotFor } from "../settings/appSettings";
+import { draftCombo } from "../combos/comboDraft";
 
 const noop: Report = () => undefined;
 
@@ -260,13 +261,14 @@ function localDayKey(d: Date): string {
 }
 
 /** Termin + Format fuer "heute + offset Tage" laut Wochenplan (null = Tag ist frei) */
-function slotForOffset(offset: number): { when: Date; kind: "reel" | "carousel" } | null {
+function slotForOffset(offset: number): { when: Date; kind: "reel" | "carousel" | "combo" } | null {
   const d = new Date();
   d.setDate(d.getDate() + offset);
   return slotFor(d);
 }
 
-function isDayTaken(when: Date): boolean {
+/** Ist an diesem Tag schon ein Deck-Post (Reel/Carousel) geplant? News zaehlen nicht. */
+export function isDayTaken(when: Date): boolean {
   return listItems().some(
     (i) =>
       (i.kind === "carousel" || i.kind === "reel") &&
@@ -277,7 +279,9 @@ function isDayTaken(when: Date): boolean {
 }
 
 /** Erzeugt Carousel- (+ Story-)Entwurf fuer einen Tag. null = kein passendes Deck. */
-async function draftForDay(when: Date, kind: "reel" | "carousel", report: Report = noop): Promise<string | null> {
+async function draftForDay(when: Date, kind: "reel" | "carousel" | "combo", report: Report = noop): Promise<string | null> {
+  // Combo-Tag: Combo-Reel von Commander Spellbook statt Deck
+  if (kind === "combo") return (await draftCombo(when, undefined, report)).label;
   const reelDay = kind === "reel";
   // Fortschritt: Deck finden/rendern 0-55 %, Reel 55-92 %, Story danach
   const produced = await produceDeckTech(subReport(report, 0, reelDay ? 0.55 : 0.85));
