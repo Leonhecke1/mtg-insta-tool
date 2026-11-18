@@ -186,3 +186,18 @@ COMMENT_POLL_MINUTES=15
 
 Ohne diese Variablen ist Auto-Publishing deaktiviert. Die Seite funktioniert trotzdem,
 es wird nur nichts gepostet.
+
+### Reels
+
+In `/queue.html` als Typ „Reel“ wählen und einen Hook eingeben. Das Tool rendert
+ein 9:16-Reel (1080×1920, ca. 16 s): Commander-Karte auf geblurrtem Artwork mit
+dem Hook als Textbox, danach Slides 2–6 mit langsamem Zoom. ffmpeg kommt aus
+`ffmpeg-static`. Auf dem Server muss dessen Install-Skript einmal laufen dürfen
+(`npm approve-scripts ffmpeg-static`), sonst fehlt die Binary. Die Tonspur ist
+still, weil die API keine Trend-Audio setzen kann.
+
+### Token-Verlängerung
+
+Der Scheduler verlängert den Long-lived-Token automatisch alle 7 Tage und speichert
+ihn in `DATA_DIR/ig-token.json`. Wird in der `.env` ein neuer `IG_ACCESS_TOKEN`
+eingetragen, hat dieser Vorrang.

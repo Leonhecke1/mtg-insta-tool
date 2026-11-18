@@ -6,6 +6,7 @@ import { renderDeckTech, runPipeline } from "./pipeline";
 import { createJob, getJob, listJobs, updateJob } from "./jobs/jobStore";
 import { GeneratedTexts, Job } from "./types";
 import { ensureJpegs } from "./render/renderer";
+import { buildReel } from "./render/reel";
 import {
   addItem,
   getItem,
@@ -230,7 +231,19 @@ app.post("/api/queue", async (req, res) => {
     let caption: string | undefined = body.caption;
     let label = body.label as string | undefined;
 
-    if (kind === "reel") {
+    if (kind === "reel" && body.jobId) {
+      // Reel aus einem Deck-Tech erzeugen (Karte als Hauptmotiv + Slides)
+      const job = getJob(body.jobId);
+      if (!job?.result) return res.status(404).json({ error: "Job (with result) not found" });
+      const hook = String(body.hook ?? job.result.texts.tagline ?? "").trim();
+      const video = await buildReel(job.result.deck, job.result.slideFiles, job.result.jobDir, {
+        hook,
+        slides: Array.isArray(body.slides) ? body.slides : undefined,
+      });
+      mediaFiles = [video];
+      caption = caption ?? job.result.caption;
+      label = label ?? `${job.result.deckSummary?.commander ?? ""} · "${hook}"`;
+    } else if (kind === "reel") {
       const video = path.resolve(config.outDir, String(body.videoFile ?? ""));
       if (!video.startsWith(config.outDir + path.sep) || !fs.existsSync(video)) {
         return res.status(400).json({ error: "videoFile not found in OUT_DIR" });

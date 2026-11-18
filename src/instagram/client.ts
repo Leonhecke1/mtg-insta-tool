@@ -1,4 +1,5 @@
 import { config } from "../config";
+import { getAccessToken } from "./token";
 
 /**
  * Minimaler Client fuer die Instagram Graph API ("Instagram API with
@@ -15,7 +16,7 @@ async function call<T = any>(
   path: string,
   params: Record<string, string> = {}
 ): Promise<T> {
-  const qs = new URLSearchParams({ ...params, access_token: config.igAccessToken });
+  const qs = new URLSearchParams({ ...params, access_token: getAccessToken() });
   const url = `${base()}${path}?${qs.toString()}`;
   const res = await fetch(url, { method });
   const body: any = await res.json().catch(() => ({}));

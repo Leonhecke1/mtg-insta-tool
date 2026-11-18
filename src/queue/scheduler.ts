@@ -9,6 +9,7 @@ import {
   replyToComment,
 } from "../instagram/client";
 import { draftReply } from "../llm/replyDrafter";
+import { refreshTokenIfDue } from "../instagram/token";
 import { nanoid } from "nanoid";
 import {
   addItem,
@@ -107,10 +108,16 @@ async function pollComments(): Promise<void> {
   }
 }
 
+let lastTokenCheck = 0;
+
 async function tick(): Promise<void> {
   if (running) return;
   running = true;
   try {
+    if (Date.now() - lastTokenCheck > 6 * 3600_000) {
+      lastTokenCheck = Date.now();
+      await refreshTokenIfDue().catch((err) => console.error("[scheduler]", err.message));
+    }
     await publishDue();
     await pollComments();
   } catch (err) {

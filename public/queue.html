@@ -45,8 +45,10 @@
           <option value="carousel">Carousel</option>
           <option value="story">Story (1. Slide)</option>
           <option value="image">Einzelbild</option>
+          <option value="reel">Reel (Karte + Slides)</option>
         </select>
         <input type="datetime-local" id="whenInp" />
+        <input type="text" id="hookInp" placeholder="Hook fürs Reel (leer = Tagline)" style="flex:1;min-width:220px;padding:8px" />
         <button id="addBtn">Als Entwurf anlegen</button>
       </div>
       <div class="err" id="addErr"></div>
@@ -86,7 +88,7 @@ function render(it) {
   el.innerHTML = `
     <h3>${esc(KIND[it.kind])} · ${esc(it.label || "")}<span class="pill ${it.status}">${esc(STATUS[it.status])}</span></h3>
     <div class="meta">${isReply ? "" : "Geplant: " + new Date(it.scheduledAt).toLocaleString("de-DE")}</div>
-    ${it.previewUrls.length ? `<div class="thumbs">${it.previewUrls.map((u) => `<img src="${u}" loading="lazy">`).join("")}</div>` : ""}
+    ${it.previewUrls.length ? `<div class="thumbs">${it.previewUrls.map((u) => u.endsWith(".mp4") ? `<video src="${u}" controls preload="metadata" style="height:320px"></video>` : `<img src="${u}" loading="lazy">`).join("")}</div>` : ""}
     ${isReply ? `<div class="quote"><b>@${esc(it.commentUsername)}:</b> ${esc(it.commentText)}</div>` : ""}
     ${it.kind === "story" ? "" : `<textarea ${editable ? "" : "disabled"}>${esc(isReply ? it.replyText : it.caption)}</textarea>`}
     ${it.error ? `<div class="err">${esc(it.error)}</div>` : ""}
@@ -136,15 +138,19 @@ document.getElementById("showDone").onchange = load;
   document.getElementById("whenInp").value = toLocal(d.toISOString());
 })();
 document.getElementById("addBtn").onclick = async () => {
+  const btn = document.getElementById("addBtn");
+  btn.disabled = true; btn.textContent = "Wird erstellt …";
   try {
     await api("POST", "/api/queue", {
       jobId: document.getElementById("jobSel").value,
       kind: document.getElementById("kindSel").value,
       scheduledAt: new Date(document.getElementById("whenInp").value).toISOString(),
+      hook: document.getElementById("hookInp").value || undefined,
     });
     document.getElementById("addErr").textContent = "";
     load();
   } catch (err) { document.getElementById("addErr").textContent = err.message; }
+  finally { btn.disabled = false; btn.textContent = "Als Entwurf anlegen"; }
 };
 
 load();
