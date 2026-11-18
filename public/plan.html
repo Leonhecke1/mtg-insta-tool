@@ -149,19 +149,19 @@ async function load() {
 document.getElementById("days").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-day]");
   if (!btn) return;
-  btn.disabled = true; btn.textContent = "Lädt (bis 2 Min) …";
+  btn.disabled = true; btn.textContent = "Läuft …";
   try {
     await api("POST", "/api/queue/fetch-deck", { day: btn.dataset.day });
-    await load();
-    if (window.updateNavBadge) window.updateNavBadge();
+    if (window.trackTasks) window.trackTasks();
   } catch (err) {
     btn.disabled = false; btn.textContent = "Deck holen";
     btn.closest(".day").querySelector(".err").textContent = err.message;
   }
 });
+window.addEventListener("tasks-done", () => load());
 
 load();
-setInterval(() => { if (!document.hidden && !document.querySelector("button[data-day]:disabled")) load(); }, 60000);
+setInterval(() => { if (!document.hidden) load(); }, 60000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
 </script>
 </body>

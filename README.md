@@ -285,3 +285,10 @@ Ohne Piper bleiben Reels stumm.
   „Deck holen“ füllt einen leeren Tag. Neu laden jede Minute.
 - **Jetzt posten:** In der Freigabe zweimal tippen. Der Eintrag wird freigegeben und sofort
   veröffentlicht.
+
+### Hintergrund-Aufträge
+
+„Neues Deck“, „Deck holen“ im Plan und „Eigenen Post einplanen“ (vor allem Reels) laufen als
+Hintergrund-Auftrag. Die Anfrage kommt sofort zurück (HTTP 202 mit `taskId`). Über der Tab-Leiste
+zeigt jede Seite Schritt und Fortschrittsbalken (`GET /api/tasks`). Seitenwechsel oder das Schließen
+der App brechen nichts ab. Fertige und fehlgeschlagene Aufträge melden sich zusätzlich per Push.

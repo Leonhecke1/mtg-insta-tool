@@ -288,18 +288,20 @@ document.getElementById("showDone").onchange = () => load(true);
 
 document.getElementById("fetchDeck").onclick = async () => {
   const btn = document.getElementById("fetchDeck");
-  btn.disabled = true; btn.textContent = "Lädt …";
-  msg.textContent = "Suche und rendere Deck (bis zu 2 Minuten) …";
+  btn.disabled = true;
   try {
-    const r = await api("POST", "/api/queue/fetch-deck");
-    msg.textContent = `${r.label} für ${new Date(r.scheduledAt).toLocaleDateString("de-DE")} angelegt.`;
-    load(true);
+    await api("POST", "/api/queue/fetch-deck");
+    msg.textContent = "Läuft im Hintergrund, Fortschritt unten. Du kannst die Seite verlassen.";
+    if (window.trackTasks) window.trackTasks();
   } catch (err) {
     msg.textContent = err.message;
   } finally {
-    btn.disabled = false; btn.textContent = "Neues Deck";
+    // kurz sperren gegen Doppel-Tipps; weitere Auftraege werden nacheinander abgearbeitet
+    setTimeout(() => { btn.disabled = false; }, 1500);
   }
 };
+// Wenn ein Hintergrund-Auftrag fertig ist, Liste neu laden
+window.addEventListener("tasks-done", () => load(true));
 
 (async () => {
   const jobs = await api("GET", "/api/jobs");
@@ -311,7 +313,7 @@ document.getElementById("fetchDeck").onclick = async () => {
 
 document.getElementById("addBtn").onclick = async () => {
   const btn = document.getElementById("addBtn");
-  btn.disabled = true; btn.textContent = "Wird erstellt …";
+  btn.disabled = true;
   try {
     await api("POST", "/api/queue", {
       jobId: document.getElementById("jobSel").value,
@@ -319,10 +321,10 @@ document.getElementById("addBtn").onclick = async () => {
       scheduledAt: new Date(document.getElementById("whenInp").value).toISOString(),
       hook: document.getElementById("hookInp").value || undefined,
     });
-    document.getElementById("addErr").textContent = "";
-    load(true);
+    document.getElementById("addErr").textContent = "Läuft im Hintergrund, Fortschritt unten.";
+    if (window.trackTasks) window.trackTasks();
   } catch (err) { document.getElementById("addErr").textContent = err.message; }
-  finally { btn.disabled = false; btn.textContent = "Als Entwurf anlegen"; }
+  finally { setTimeout(() => { btn.disabled = false; }, 1500); }
 };
 
 load(true);

@@ -10,15 +10,18 @@ import { runPipeline } from "../pipeline";
 import { createJob, listJobs, updateJob } from "../jobs/jobStore";
 import { ensureJpegs } from "../render/renderer";
 import { buildNewPostStory, buildReel, reelCoverPath } from "../render/reel";
+import { notify } from "../push/push";
+import { addItem, listItems } from "../queue/queueStore";
+import { Report, subReport } from "../tasks/tasks";
+
+const noop: Report = () => undefined;
 
 /** Video + Titelbild (falls vorhanden) */
-async function reelMedia(deck: Parameters<typeof buildReel>[0], dir: string): Promise<string[]> {
-  const video = await buildReel(deck, dir);
+async function reelMedia(deck: Parameters<typeof buildReel>[0], dir: string, report: Report = noop): Promise<string[]> {
+  const video = await buildReel(deck, dir, { onProgress: report });
   const cover = reelCoverPath(video);
   return fs.existsSync(cover) ? [video, cover] : [video];
 }
-import { notify } from "../push/push";
-import { addItem, listItems } from "../queue/queueStore";
 import { Job } from "../types";
 
 /**
@@ -163,7 +166,8 @@ function log(entry: SourcedDeck): void {
 }
 
 /** Waehlt ein passendes Deck, rendert es und gibt den fertigen Job zurueck. */
-export async function produceDeckTech(): Promise<{ job: Job; own: boolean } | null> {
+export async function produceDeckTech(report: Report = noop): Promise<{ job: Job; own: boolean } | null> {
+  report("Lese bisherige Posts", 0.02);
   const used = usedSets();
   const ig = await instagramHistory();
   ig.deckIds.forEach((id) => used.deckIds.add(id));
@@ -171,6 +175,7 @@ export async function produceDeckTech(): Promise<{ job: Job; own: boolean } | nu
   const postedOnIg = (name: string) => ig.text.length > 0 && norm(name).length >= 6 && ig.text.includes(norm(name));
   let tries = 0;
 
+  report("Suche Decks auf Archidekt", 0.05);
   for (const { deck, own } of await candidates()) {
     if (used.deckIds.has(deck.id)) continue;
     if (tries >= 6) break;
@@ -182,6 +187,7 @@ export async function produceDeckTech(): Promise<{ job: Job; own: boolean } | nu
     tries++;
 
     // Commander vorab pruefen, bevor teuer gerendert wird
+    report(`Prüfe „${deck.name}“ (Versuch ${tries})`, 0.05 + 0.03 * tries);
     const raw = await fetchArchidektDeck(url);
     const commander = raw.commanders.map((c) => c.name).join(" & ");
     if (!commander || raw.commanders.some((c) => used.commanders.has(norm(c.name)) || postedOnIg(c.name))) {
@@ -199,6 +205,7 @@ export async function produceDeckTech(): Promise<{ job: Job; own: boolean } | nu
     createJob(job);
 
     try {
+      report(`${commander}: lade Karten und rendere Slides`, 0.25);
       const result = await runPipeline(
         { kind: "archidekt", archidektUrl: url },
         {
@@ -209,6 +216,7 @@ export async function produceDeckTech(): Promise<{ job: Job; own: boolean } | nu
       );
 
       if (!own && result.deck.totalPriceEur > config.dailyBudgetMaxEur) {
+        report(`${commander} zu teuer (${Math.round(result.deck.totalPriceEur)} €), nächstes Deck`, 0.1);
         updateJob(jobId, { status: "failed", error: "over budget (daily sourcing)" });
         log({ deckId: deck.id, owner: deck.owner.username, commander, at: new Date().toISOString(), outcome: "skipped", reason: `price ${Math.round(result.deck.totalPriceEur)} EUR` });
         continue;
@@ -266,19 +274,22 @@ function isDayTaken(when: Date): boolean {
 }
 
 /** Erzeugt Carousel- (+ Story-)Entwurf fuer einen Tag. null = kein passendes Deck. */
-async function draftForDay(when: Date): Promise<string | null> {
-  const produced = await produceDeckTech();
+async function draftForDay(when: Date, report: Report = noop): Promise<string | null> {
+  // An Reel-Tagen ersetzt ein animiertes Reel das Carousel
+  const reelDay = config.dailyReelDays.includes(when.getDay());
+  // Fortschritt: Deck finden/rendern 0-55 %, Reel 55-92 %, Story danach
+  const produced = await produceDeckTech(subReport(report, 0, reelDay ? 0.55 : 0.85));
   if (!produced) {
     console.warn(`[daily] no suitable deck found for ${localDayKey(when)}`);
     return null;
   }
   const { job } = produced;
   const r = job.result!;
+  report("Bereite Bilder für Instagram vor", reelDay ? 0.55 : 0.86);
   const jpgs = await ensureJpegs(r.slideFiles.slice(0, 10));
   const label = r.deckSummary?.commander ?? job.id;
 
-  // An Reel-Tagen ersetzt ein animiertes Reel das Carousel
-  const reelDay = config.dailyReelDays.includes(when.getDay());
+  const media = reelDay ? await reelMedia(r.deck, r.jobDir, subReport(report, 0.56, 0.92)) : jpgs;
   addItem({
     id: nanoid(10),
     kind: reelDay ? "reel" : "carousel",
@@ -286,13 +297,14 @@ async function draftForDay(when: Date): Promise<string | null> {
     createdAt: new Date().toISOString(),
     scheduledAt: when.toISOString(),
     mediaToken: nanoid(24),
-    mediaFiles: reelDay ? await reelMedia(r.deck, r.jobDir) : jpgs,
+    mediaFiles: media,
     caption: r.caption,
     sourceJobId: job.id,
     label,
   });
 
   if (config.dailyStory) {
+    report("Erzeuge Story-Grafik", 0.95);
     addItem({
       id: nanoid(10),
       kind: "story",
@@ -347,7 +359,11 @@ export function ensureDailyDrafts(): Promise<void> {
 }
 
 /** Button "Neues Deck holen": Entwurf fuer den naechsten freien Tag. */
-export function fetchNextDeck(day?: string): Promise<{ label: string; scheduledAt: string }> {
+export function fetchNextDeck(
+  day?: string,
+  report: Report = noop
+): Promise<{ label: string; scheduledAt: string }> {
+  report("Wartet auf laufenden Auftrag", 0);
   return serialized(async () => {
     // Bestimmter Tag aus der Plan-Ansicht ("YYYY-MM-DD")
     if (day) {
@@ -356,14 +372,14 @@ export function fetchNextDeck(day?: string): Promise<{ label: string; scheduledA
       const when = new Date(+m[1], +m[2] - 1, +m[3], config.dailyPostHour, 0, 0, 0);
       if (when.getTime() < Date.now()) throw new Error("Der Termin liegt in der Vergangenheit");
       if (isDayTaken(when)) throw new Error("An diesem Tag ist schon ein Post geplant");
-      const label = await draftForDay(when);
+      const label = await draftForDay(when, report);
       if (!label) throw new Error("Kein passendes Deck gefunden, später nochmal versuchen");
       return { label, scheduledAt: when.toISOString() };
     }
     for (let offset = 1; offset <= 60; offset++) {
       const when = postTimeForOffset(offset);
       if (isDayTaken(when)) continue;
-      const label = await draftForDay(when);
+      const label = await draftForDay(when, report);
       if (!label) throw new Error("Kein passendes Deck gefunden, später nochmal versuchen");
       return { label, scheduledAt: when.toISOString() };
     }

@@ -18,6 +18,7 @@ import {
 } from "./queue/queueStore";
 import { mediaUrls, runSchedulerNow, startScheduler } from "./queue/scheduler";
 import { fetchNextDeck, planInfo } from "./sourcing/dailyDeck";
+import { getTask, listTasks, startTask } from "./tasks/tasks";
 import * as fs from "fs";
 import { authEnabled, handleLogin, handleLogout, requireAuth } from "./auth";
 import {
@@ -260,58 +261,78 @@ app.post("/api/queue", async (req, res) => {
   const scheduledAt = new Date(body.scheduledAt ?? Date.now());
   if (isNaN(scheduledAt.getTime())) return res.status(400).json({ error: "invalid scheduledAt" });
 
-  try {
-    let mediaFiles: string[] = [];
-    let caption: string | undefined = body.caption;
-    let label = body.label as string | undefined;
-
-    if (kind === "reel" && body.jobId) {
-      // Animiertes Reel aus dem Deck (eigene Szenen, kein Slide-Zoom)
-      const job = getJob(body.jobId);
-      if (!job?.result) return res.status(404).json({ error: "Job (with result) not found" });
-      const hookIn = typeof body.hook === "string" ? body.hook : undefined;
-      const video = await buildReel(job.result.deck, job.result.jobDir, { hook: hookIn });
-      const hook = reelScript(job.result.deck, hookIn).hook;
-      const cover = reelCoverPath(video);
-      mediaFiles = fs.existsSync(cover) ? [video, cover] : [video];
-      caption = caption ?? job.result.caption;
-      label = label ?? `${job.result.deckSummary?.commander ?? ""} · "${hook}"`;
-    } else if (kind === "reel") {
-      const video = path.resolve(config.outDir, String(body.videoFile ?? ""));
-      if (!video.startsWith(config.outDir + path.sep) || !fs.existsSync(video)) {
-        return res.status(400).json({ error: "videoFile not found in OUT_DIR" });
-      }
-      mediaFiles = [video];
-    } else {
-      const job = getJob(body.jobId);
-      if (!job?.result) return res.status(404).json({ error: "Job (with result) not found" });
-      let pngs = job.result.slideFiles;
-      if (Array.isArray(body.slides) && body.slides.length) {
-        pngs = body.slides.map((n: number) => pngs[n - 1]).filter(Boolean);
-      }
-      if (kind !== "carousel") pngs = pngs.slice(0, 1);
-      mediaFiles = await ensureJpegs(pngs);
-      caption = caption ?? job.result.caption;
-      label = label ?? job.result.deckSummary?.commander;
+  // Eingaben sofort pruefen, die langsame Arbeit laeuft als Hintergrund-Auftrag
+  const job = body.jobId ? getJob(body.jobId) : undefined;
+  let videoFile: string | undefined;
+  if (kind === "reel" && !body.jobId) {
+    videoFile = path.resolve(config.outDir, String(body.videoFile ?? ""));
+    if (!videoFile.startsWith(config.outDir + path.sep) || !fs.existsSync(videoFile)) {
+      return res.status(400).json({ error: "videoFile not found in OUT_DIR" });
     }
-
-    const item: QueueItem = {
-      id: nanoid(10),
-      kind,
-      status: "draft",
-      createdAt: new Date().toISOString(),
-      scheduledAt: scheduledAt.toISOString(),
-      mediaToken: nanoid(24),
-      mediaFiles,
-      caption: kind === "story" ? undefined : caption,
-      sourceJobId: body.jobId,
-      label,
-    };
-    addItem(item);
-    res.json(toQueueSummary(item));
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  } else if (!job?.result) {
+    return res.status(404).json({ error: "Job (with result) not found" });
   }
+  const result = job?.result;
+  const KIND_DE: Record<string, string> = { carousel: "Carousel", image: "Bild", story: "Story", reel: "Reel" };
+
+  const task = startTask(
+    `${KIND_DE[kind]}: ${result?.deckSummary?.commander ?? "Video"}`,
+    async (report) => {
+      let mediaFiles: string[] = [];
+      let caption: string | undefined = body.caption;
+      let label = body.label as string | undefined;
+
+      if (kind === "reel" && result) {
+        // Animiertes Reel aus dem Deck (eigene Szenen, kein Slide-Zoom)
+        const hookIn = typeof body.hook === "string" ? body.hook : undefined;
+        const video = await buildReel(result.deck, result.jobDir, { hook: hookIn, onProgress: report });
+        const hook = reelScript(result.deck, hookIn).hook;
+        const cover = reelCoverPath(video);
+        mediaFiles = fs.existsSync(cover) ? [video, cover] : [video];
+        caption = caption ?? result.caption;
+        label = label ?? `${result.deckSummary?.commander ?? ""} · "${hook}"`;
+      } else if (kind === "reel" && videoFile) {
+        mediaFiles = [videoFile];
+      } else if (result) {
+        report("Bereite Bilder vor", 0.3);
+        let pngs = result.slideFiles;
+        if (Array.isArray(body.slides) && body.slides.length) {
+          pngs = body.slides.map((n: number) => pngs[n - 1]).filter(Boolean);
+        }
+        if (kind !== "carousel") pngs = pngs.slice(0, 1);
+        mediaFiles = await ensureJpegs(pngs);
+        caption = caption ?? result.caption;
+        label = label ?? result.deckSummary?.commander;
+      }
+
+      const item: QueueItem = {
+        id: nanoid(10),
+        kind,
+        status: "draft",
+        createdAt: new Date().toISOString(),
+        scheduledAt: scheduledAt.toISOString(),
+        mediaToken: nanoid(24),
+        mediaFiles,
+        caption: kind === "story" ? undefined : caption,
+        sourceJobId: body.jobId,
+        label,
+      };
+      addItem(item);
+      return { itemId: item.id, label };
+    },
+    { notifyOnDone: (r) => `${r.label ?? "Entwurf"} wartet auf Freigabe.` }
+  );
+  res.status(202).json({ taskId: task.id });
+});
+
+// --- Hintergrund-Auftraege (Fortschritt fuer die App) ---
+app.get("/api/tasks", (_req, res) => {
+  res.json(listTasks());
+});
+app.get("/api/tasks/:id", (req, res) => {
+  const t = getTask(req.params.id);
+  if (!t) return res.status(404).json({ error: "not found" });
+  res.json(t);
 });
 
 app.patch("/api/queue/:id", (req, res) => {
@@ -338,13 +359,15 @@ app.get("/api/plan/info", (_req, res) => {
   res.json({ ...planInfo(), instagram: instagramConfigured() });
 });
 
-app.post("/api/queue/fetch-deck", async (req, res) => {
-  try {
-    const day = typeof req.body?.day === "string" ? req.body.day : undefined;
-    res.json(await fetchNextDeck(day));
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-  }
+app.post("/api/queue/fetch-deck", (req, res) => {
+  const day = typeof req.body?.day === "string" ? req.body.day : undefined;
+  const label = day
+    ? `Deck für ${new Date(day + "T12:00:00").toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" })}`
+    : "Neues Deck";
+  const task = startTask(label, (report) => fetchNextDeck(day, report), {
+    notifyOnDone: (r) => `${r.label} für ${new Date(r.scheduledAt).toLocaleDateString("de-DE")} wartet auf Freigabe.`,
+  });
+  res.status(202).json({ taskId: task.id });
 });
 
 app.post("/api/queue/approve-all", (_req, res) => {
