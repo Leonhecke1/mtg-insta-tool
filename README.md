@@ -261,6 +261,10 @@ Natürlichere Stimme: [Nari Labs Dia](https://github.com/nari-labs/dia) mit `TTS
 (Python-venv, ~8 GB RAM, auf CPU langsam). `scripts/dia_tts.py` spricht alle Szenen eines Reels
 mit derselben Stimme (`DIA_VOICE_PROMPT`). Schlägt Dia fehl, springt Piper ein. Setup: SERVER_TODO.md, Abschnitt 8b.
 
+Oder [VoiceStudio](https://github.com/debpalash/VoiceStudio) als eigener Docker-Dienst mit `TTS_ENGINE=voicestudio`
+(OpenAI-kompatibel, `/v1/audio/speech`, eigene/geklonte Stimme über `VOICESTUDIO_VOICE`). Fällt es aus, springt Piper ein.
+Setup und Lizenzhinweis (Standardmodell OmniVoice: nicht kommerziell): SERVER_TODO.md, Abschnitt 8c.
+
 ## Handy-App (iOS) und Benachrichtigungen
 
 - **Login:** Formular mit dauerhaftem Cookie statt Basic Auth. Basic Auth geht in iOS-Homescreen-Apps

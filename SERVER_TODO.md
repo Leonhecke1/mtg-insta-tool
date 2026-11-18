@@ -158,6 +158,36 @@ Erklär-Reels zu Combos im Stil „Janky Combos“: Karten einzeln, dann der Loo
 - [ ] Gefällt die Stimme nicht: `voice.wav` und `voice.txt` löschen, `DIA_SEED` ändern, neues Reel erzeugen
 - [ ] Ist es zu langsam oder fehlt RAM: `TTS_ENGINE=piper` (Standard) und Neustart
 
+## 8c. Neu: Stimme mit VoiceStudio (Leons Wahl, statt Dia)
+
+[VoiceStudio](https://github.com/debpalash/VoiceStudio) läuft als eigener Docker-Dienst neben dem Tool (Standard-Engine OmniVoice, Stimmen klonen/entwerfen). Das Tool ruft `POST http://127.0.0.1:3900/v1/audio/speech` (OpenAI-kompatibel) einmal pro Szene auf. Fällt VoiceStudio aus oder antwortet nicht innerhalb `VOICESTUDIO_TIMEOUT_SEC`, nimmt das Reel automatisch Piper.
+
+- [ ] Erst prüfen und Leon melden: `nproc`, `free -h`, `df -h /var/lib/docker`, `docker --version`, `nvidia-smi`. Läuft nur auf x86_64 (amd64); auf CPU langsamer als Piper
+- [ ] **Vorher Leon fragen** (Download: Docker-Image `ghcr.io/debpalash/voicestudio:stable` plus ~2,4 GB Modell beim ersten Start). Nur an localhost binden, dann braucht es keinen API-Key:
+  ```
+  docker run -d --name voicestudio --restart unless-stopped \
+    -p 127.0.0.1:3900:3900 \
+    -e OMNIVOICE_DATA_DIR=/app/omnivoice_data \
+    -e OMNIVOICE_ANALYTICS_DISABLED=1 \
+    -v voicestudio-data:/app/omnivoice_data \
+    ghcr.io/debpalash/voicestudio:stable
+  docker logs -f voicestudio      # warten, bis das Modell geladen ist
+  curl -fsS http://127.0.0.1:3900/health
+  ```
+- [ ] Testlauf ohne Veröffentlichung: `curl -s http://127.0.0.1:3900/v1/audio/speech -H 'Content-Type: application/json' -d '{"model":"omnivoice","voice":"default","input":"Two cards, and you get infinite mana. Let me show you how that works.","response_format":"wav","language":"en"}' -o /tmp/vs.wav` → Dauer messen, Leon die Datei anhören lassen
+- [ ] Verfügbare Stimmen: `curl -s http://127.0.0.1:3900/v1/audio/voices`. Eine eigene Stimme (klonen/entwerfen) legt Leon in der VoiceStudio-Oberfläche an (per SSH-Tunnel `ssh -L 3900:127.0.0.1:3900 server`, dann http://localhost:3900), danach ihre ID oder ihren Namen in `VOICESTUDIO_VOICE`
+- [ ] `.env`:
+  ```
+  TTS_ENGINE=voicestudio
+  VOICESTUDIO_URL=http://127.0.0.1:3900
+  VOICESTUDIO_MODEL=omnivoice
+  VOICESTUDIO_VOICE=default
+  VOICESTUDIO_INSTRUCTIONS=friendly, relaxed, conversational
+  ```
+  Optional: `VOICESTUDIO_SPEED` (1.0), `VOICESTUDIO_TIMEOUT_SEC` (300 pro Szene), `VOICESTUDIO_API_KEY` (nur wenn VoiceStudio auf einem anderen Rechner läuft; Leon trägt ihn selbst ein)
+- [ ] Neustart, ein Combo-Reel erzeugen, Log auf `[tts] VoiceStudio fehlgeschlagen` prüfen, Entwurf danach ablehnen
+- [ ] Lizenz: VoiceStudio selbst ist AGPL-3.0 und läuft unverändert als eigener Dienst (wir binden keinen Code ein). **Achtung:** Das Standardmodell **OmniVoice** führt VoiceStudio in `docs/licensing/model-inventory.md` als **nicht kommerziell**. Für einen Hobby-Account ok, sobald floating.mana Geld verdient (Sponsoring, Affiliate) nicht mehr. Leon entscheidet; ein anderes Modell wird über `VOICESTUDIO_MODEL` gewählt (Lizenz vorher in derselben Datei prüfen)
+
 ## 9. Nach dem Test an Leon zurückmelden
 
 - Was läuft, was nicht (mit Logzeilen, ohne Secrets)
