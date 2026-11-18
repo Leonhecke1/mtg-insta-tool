@@ -96,14 +96,18 @@ const MIN_GAP_MS = 300;
 let nextSlot = 0;
 let cooldownUntil = 0;
 
-async function scryfall<T = any>(url: string): Promise<T> {
+export async function scryfall<T = any>(url: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   if (Date.now() < cooldownUntil) {
     throw new Error(`Scryfall-Pause wegen zu vieler Anfragen, bitte nach ${new Date(cooldownUntil).toLocaleTimeString("de-DE")} erneut versuchen`);
   }
   const wait = Math.max(0, nextSlot - Date.now());
   nextSlot = Math.max(Date.now(), nextSlot) + MIN_GAP_MS;
   if (wait) await sleep(wait);
-  const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" } });
+  const res = await fetch(url, {
+    method: init.method ?? "GET",
+    headers: { "User-Agent": UA, Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}) },
+    body: init.body ? JSON.stringify(init.body) : undefined,
+  });
   const body: any = await res.json().catch(() => ({}));
   if (res.status === 429) {
     cooldownUntil = Date.now() + 65_000;
@@ -125,12 +129,12 @@ async function searchAll(q: string, maxCards = 1500): Promise<any[]> {
   return out;
 }
 
-function cardImages(c: any): { image?: string; art?: string } {
+export function cardImages(c: any): { image?: string; art?: string } {
   const face = c.image_uris ?? c.card_faces?.[0]?.image_uris;
   return { image: face?.normal, art: face?.art_crop };
 }
 
-function oracle(c: any): string {
+export function oracle(c: any): string {
   return (c.oracle_text ?? c.card_faces?.map((f: any) => f.oracle_text).join("\n") ?? "").replace(/\([^)]*\)/g, "").trim();
 }
 
@@ -340,6 +344,12 @@ let polling: Promise<PollResult> | null = null;
 let autoDrafter: ((item: NewsItem) => Promise<unknown>) | null = null;
 export function setAutoDrafter(fn: (item: NewsItem) => Promise<unknown>): void {
   autoDrafter = fn;
+}
+
+/** Zeitpunkt des letzten Abrufs (aus data/news.json, ueberlebt Neustarts) */
+export function lastNewsPollAt(): number {
+  const t = load().lastPoll;
+  return t ? new Date(t).getTime() || 0 : 0;
 }
 
 /** Alle Quellen abfragen */

@@ -39,7 +39,7 @@ Branch: `feat/auto-publish` (22 Commits gegenüber `main`).
 
 - [ ] `cd /opt/mtg-insta-tool && git fetch && git checkout feat/auto-publish && git pull`
 - [ ] `npm ci`
-- [ ] Install-Skript von ffmpeg-static erlauben, falls `npm ci` es blockiert: `npm approve-scripts ffmpeg-static`, danach `npm rebuild ffmpeg-static`
+- [x] Install-Skript von ffmpeg-static: steht jetzt in `package.json` unter `allowScripts` (`ffmpeg-static@5.2.0`), `npm ci` braucht keine lokale Änderung mehr
 - [ ] Prüfen: `node -e "const p=require('ffmpeg-static');console.log(p, require('fs').existsSync(p))"` muss `true` ausgeben
 - [ ] Puppeteer/Chromium-Bibliotheken vorhanden (`libnss3`, `libatk-bridge2.0-0`, `libgbm1`, `libasound2`, `fonts-liberation` …). Test: ein Reel erzeugen (Punkt 4)
 - [ ] `npm run build` ohne Fehler. Prüfen: `ls dist/skills/lexicon/slop.json` existiert (der Build muss die JSON-Daten mitkopieren)
@@ -80,7 +80,7 @@ Reel erzeugen:
 - [ ] In der App unter Freigabe → „Eigenen Post einplanen“ → Typ Reel → Entwurf. Oder per API:
   `POST /api/queue` mit `{"jobId":"<ein Job aus /api/jobs mit status ready>","kind":"reel","scheduledAt":"<morgen 19:00 ISO>"}`
 - [ ] Auftrag in `/api/tasks` wird `done` (dauert 1–2 min)
-- [ ] Datei prüfen: `ffmpeg -i out/<job>/reel.mp4` zeigt `1080x1920`, ~25 s, Video und Audio. Bewegung prüfen: zwei Einzelbilder bei 2 s und 10 s extrahieren, sie müssen sich unterscheiden
+- [ ] Datei prüfen: `ffmpeg -i out/<job>/reel.mp4` zeigt `1080x1920`, Video und Audio. Länge: ohne Stimme ~25 s; **mit Piper-Stimme ~45–55 s** bei Reel-Länge „Voll“ (jede Szene dauert so lange wie ihr gesprochener Text). Für ~25–30 s in der App Optionen → Reel-Länge „Kurz“ wählen. Bewegung prüfen: zwei Einzelbilder bei 2 s und 10 s extrahieren, sie müssen sich unterscheiden
 - [ ] Danach den Test-Entwurf in der App **ablehnen**
 
 News:
@@ -101,15 +101,31 @@ Automatik:
 - [ ] **„2 Posts bei der Freigabe“:** Freigabeliste ansehen (`GET /api/queue`) und doppelte Einträge mit gleichem `label` und gleichem Tag suchen. Bekannte, inzwischen behobene Ursache: „In Reels umwandeln“ doppelt angetippt. Weitere mögliche Ursachen: Story-Entwurf (sollte aus sein, Optionen → Story), ein News-Entwurf am selben Tag (gewollt, zusätzlich), ein manuell angelegter plus ein automatischer Post. Ergebnis an Leon melden, Duplikate in der App ablehnen
 - [ ] Alte Entwürfe aus früheren Versionen (alte Captions mit Link, Story-Grafiken) ablehnen, damit nur neue Formate rausgehen
 
-## 6. Optional: Stimme für Reels (Piper)
+## 6. Stimme für Reels (Piper) — ERLEDIGT
 
-- [ ] Piper-Release für Linux x86_64 von https://github.com/rhasspy/piper/releases nach `/opt/piper` laden. **Vorher Leon fragen** (Download)
-- [ ] Englische Stimme, z. B. `en_US-ryan-medium.onnx` plus `.onnx.json`, nach `/opt/piper`
-- [ ] `.env`: `PIPER_BIN=/opt/piper/piper`, `PIPER_MODEL=/opt/piper/en_US-ryan-medium.onnx`, Neustart
+Piper ist installiert: `/opt/piper`, Stimmen `ryan` und `norman`, `.env` zeigt auf `norman`.
+Neu und optional in der `.env`: `PIPER_SENTENCE_SILENCE` (Pause nach jedem Satz, Standard 0.25 s) und `PIPER_LENGTH_SCALE` (Tempo, Standard 1.05, größer = langsamer). Der Sprechtext wird vor Piper automatisch aufbereitet (`src/skills/ttsText.ts`: Abkürzungen, Klammern, Doppelpunkte, lange Sätze teilen).
+
+
+- [x] Piper-Release für Linux x86_64 von https://github.com/rhasspy/piper/releases nach `/opt/piper` laden. **Vorher Leon fragen** (Download)
+- [x] Englische Stimme, z. B. `en_US-ryan-medium.onnx` plus `.onnx.json`, nach `/opt/piper`
+- [x] `.env`: `PIPER_BIN=/opt/piper/piper`, `PIPER_MODEL=/opt/piper/en_US-ryan-medium.onnx`, Neustart
 - [ ] Test-Reel erzeugen. Audio-Spur hat jetzt deutlich mehr als 2 kb/s, Untertitel sind sichtbar
 - [ ] Aussprache prüfen. Begriffe wie „+1/+1“ unter Optionen → Aussprache anpassen
 
-## 7. Nach dem Test an Leon zurückmelden
+## 7. Behoben nach dem ersten Server-Test
+
+- ffmpeg-Abbruch (z. B. bei `systemctl restart` während eines Renders) bringt den Server nicht mehr zum Absturz: `src/render/procs.ts` fängt das ab, `process.on("unhandledRejection")` loggt statt abzustürzen, SIGTERM beendet laufende ffmpeg-Prozesse sauber
+- Jobs, die beim Neustart auf `generating` hängen, werden beim Start auf `failed` („Abgebrochen durch Neustart“) gesetzt. Hintergrund-Aufträge (`/api/tasks`) liegen nur im Speicher, da bleibt nichts hängen
+- `POST /api/queue` lehnt einen zweiten Deck-Post am selben Tag oder einen zweiten offenen Entwurf desselben Jobs mit 409 ab (mit `force: true` trotzdem möglich, die App fragt nach). Das Formular schlägt den nächsten freien Tag vor. News bleiben zusätzlich erlaubt
+- Neustarts fragen Scryfall nicht mehr ab: der letzte News-Abruf steht in `data/news.json` (`lastPoll`), abgerufen wird erst nach Ablauf des Intervalls
+
+Prüfen nach dem Update:
+- [ ] Während eines Reel-Renders `sudo systemctl restart mtg-insta-tool`: Log zeigt `SIGTERM: fahre herunter (1 Render-Prozess(e) beendet)`, kein `status=1/FAILURE`
+- [ ] Zweimal hintereinander neu starten: **kein** `[news]`-Abruf im Log
+- [ ] „Eigenen Post einplanen“ für einen Tag mit Entwurf: Rückfrage erscheint
+
+## 8. Nach dem Test an Leon zurückmelden
 
 - Was läuft, was nicht (mit Logzeilen, ohne Secrets)
 - Ob Reels sich bewegen und ob Ton da ist

@@ -3,7 +3,8 @@ import express from "express";
 import { nanoid } from "nanoid";
 import { config, instagramConfigured } from "./config";
 import { renderDeckTech, runPipeline } from "./pipeline";
-import { createJob, getJob, listJobs, updateJob } from "./jobs/jobStore";
+import { createJob, getJob, initJobs, listJobs, updateJob } from "./jobs/jobStore";
+import { killAllRenders } from "./render/procs";
 import { GeneratedTexts, Job } from "./types";
 import { ensureJpegs } from "./render/renderer";
 import { buildReel, reelCoverPath, reelScript } from "./render/reel";
@@ -17,7 +18,7 @@ import {
   updateItem,
 } from "./queue/queueStore";
 import { mediaUrls, runDailyNow, runSchedulerNow, startScheduler } from "./queue/scheduler";
-import { fetchNextDeck, planInfo } from "./sourcing/dailyDeck";
+import { fetchNextDeck, isDayTaken, planInfo } from "./sourcing/dailyDeck";
 import { getTask, listTasks, startTask } from "./tasks/tasks";
 import { creditFromText, igCaption } from "./skills/igCaption";
 import { lintCaption } from "./skills/caption";
@@ -290,6 +291,22 @@ app.post("/api/queue", async (req, res) => {
   }
   const scheduledAt = new Date(body.scheduledAt ?? Date.now());
   if (isNaN(scheduledAt.getTime())) return res.status(400).json({ error: "invalid scheduledAt" });
+
+  // Doppelte Deck-Posts verhindern (z. B. manuell eingeplant, was die Automatik gerade angelegt hat).
+  // Mit force: true trotzdem anlegen. News-Entwuerfe laufen nicht hierueber und bleiben zusaetzlich erlaubt.
+  if (["reel", "carousel", "image"].includes(kind) && !body.force) {
+    const problems: string[] = [];
+    if (isDayTaken(scheduledAt)) {
+      problems.push(`Am ${scheduledAt.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "numeric" })} ist schon ein Deck-Post geplant.`);
+    }
+    const sameJob = body.jobId
+      ? listItems().find((i) => i.sourceJobId === body.jobId && ["draft", "approved"].includes(i.status) && i.origin !== "news")
+      : undefined;
+    if (sameJob) {
+      problems.push(`Dieses Deck hat schon einen offenen Entwurf (${new Date(sameJob.scheduledAt).toLocaleDateString("de-DE")}).`);
+    }
+    if (problems.length) return res.status(409).json({ error: problems.join(" "), conflict: true });
+  }
 
   // Eingaben sofort pruefen, die langsame Arbeit laeuft als Hintergrund-Auftrag
   const job = body.jobId ? getJob(body.jobId) : undefined;
@@ -643,7 +660,28 @@ app.post("/api/queue/:id/reject", (req, res) => {
   res.json(toQueueSummary(updateItem(item.id, { status: "rejected" })!));
 });
 
-app.listen(config.port, () => {
+// Sicherheitsnetz: ein vergessener Fehler in einem Hintergrund-Auftrag darf den Server nicht beenden
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] unhandled rejection:", reason instanceof Error ? reason.message : reason);
+});
+
+initJobs(); // haengende Jobs vom letzten Lauf als fehlgeschlagen markieren
+
+const server = app.listen(config.port, () => {
   console.log(`[server] mtg-insta-tool running on http://localhost:${config.port}`);
   startScheduler();
 });
+
+// systemctl restart/stop: laufende Renders beenden und sauber herunterfahren
+let stopping = false;
+for (const sig of ["SIGTERM", "SIGINT"] as const) {
+  process.on(sig, () => {
+    if (stopping) return;
+    stopping = true;
+    const n = killAllRenders();
+    console.log(`[server] ${sig}: fahre herunter${n ? ` (${n} Render-Prozess(e) beendet)` : ""}`);
+    server.close();
+    // Puppeteer-Browser werden beim Beenden des Prozesses mit beendet
+    setTimeout(() => process.exit(0), 300).unref();
+  });
+}

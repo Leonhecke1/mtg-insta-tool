@@ -266,7 +266,8 @@ function slotForOffset(offset: number): { when: Date; kind: "reel" | "carousel" 
   return slotFor(d);
 }
 
-function isDayTaken(when: Date): boolean {
+/** Ist an diesem Tag schon ein Deck-Post (Reel/Carousel) geplant? News zaehlen nicht. */
+export function isDayTaken(when: Date): boolean {
   return listItems().some(
     (i) =>
       (i.kind === "carousel" || i.kind === "reel") &&
