@@ -296,7 +296,7 @@ der App brechen nichts ab. Fertige und fehlgeschlagene Aufträge melden sich zus
 ## Regeln aus dem Instagram-Plugin (kostenlos, ohne Claude)
 
 Übernommen aus [instagram-agent-skill](https://github.com/Jakeschincariol/instagram-agent-skill)
-(MIT, © Jake Schincariol). Lizenz in `src/skills/data/LICENSE-instagram-agent-skill`.
+(MIT, © Jake Schincariol). Lizenz in `src/skills/lexicon/LICENSE-instagram-agent-skill`.
 
 - **/ig-caption** (`src/skills/igCaption.ts`, `src/skills/caption.ts`): Captions mit Hook in den
   ersten 125 Zeichen, kurzen Absätzen mit Suchbegriffen, genau einer Aufforderung und höchstens

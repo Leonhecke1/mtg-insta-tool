@@ -1,6 +1,6 @@
 /**
  * Port von caption.py (/ig-caption) aus dem "instagram-agent-skill" von
- * Jake Schincariol, MIT-Lizenz (siehe data/LICENSE-instagram-agent-skill).
+ * Jake Schincariol, MIT-Lizenz (siehe lexicon/LICENSE-instagram-agent-skill).
  *
  * Zeigt, was der Feed vor dem "... mehr" zeigt (~125 Zeichen), und prueft die
  * Punkte, die sich zu pruefen lohnen: Laenge, erste Zeile, konkreter Hook,

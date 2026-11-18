@@ -1,15 +1,17 @@
 /**
  * Port von /ig-human (humanize.py + Struktur-Check aus detect.py) aus dem
  * "instagram-agent-skill" von Jake Schincariol, MIT-Lizenz
- * (siehe data/LICENSE-instagram-agent-skill). Daten: data/slop.json.
+ * (siehe lexicon/LICENSE-instagram-agent-skill). Daten: lexicon/slop.json.
  *
  * Entfernt unsichtbare Zeichen, normalisiert Typografie (Gedankenstrich ->
  * Komma ...), ersetzt KI-Floskeln durch einfache Woerter und meldet
  * typische Satzmuster ("It's not just X, it's Y"), die man selbst umschreiben sollte.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const lex = require("./data/slop.json") as {
+
+import slopJson from "./lexicon/slop.json";
+
+const lex = slopJson as unknown as {
   invisible: { cp: string; name: string; action: "delete" | "space" }[];
   typographic: { from: string; name: string; to: string }[];
   words: { find: string; replace: string; family: string }[];
