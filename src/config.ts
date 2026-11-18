@@ -47,6 +47,16 @@ export const config = {
   piperSentenceSilence: parseFloat(optional("PIPER_SENTENCE_SILENCE", "0.25")),
   piperLengthScale: parseFloat(optional("PIPER_LENGTH_SCALE", "1.05")),
 
+  // --- Alternative Stimme: Nari Labs Dia (natuerlicher, braucht Python + viel RAM/GPU) ---
+  // TTS_ENGINE=dia aktiviert Dia; bei Fehler/Timeout faellt es auf Piper zurueck.
+  ttsEngine: optional("TTS_ENGINE", "piper"),
+  diaPython: optional("DIA_PYTHON", "python3"),
+  // Stimmvorlage (WAV + gleichnamige .txt). Fehlt die Datei, wird die erste Aufnahme dort gespeichert.
+  diaVoicePrompt: optional("DIA_VOICE_PROMPT"),
+  diaSeed: parseInt(optional("DIA_SEED", "42"), 10),
+  // Max. Dauer fuer alle Sprachaufnahmen eines Reels (Minuten); CPU ist langsam
+  diaTimeoutMin: parseFloat(optional("DIA_TIMEOUT_MIN", "20")),
+
   // --- Taeglicher Deck-Post (Entwuerfe aus Archidekt) ---
   dailyDecks: optional("DAILY_DECKS", "false") === "true",
   dailyPostHour: parseInt(optional("DAILY_POST_HOUR", "19"), 10),

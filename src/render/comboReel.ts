@@ -8,7 +8,7 @@ import { Combo } from "../combos/spellbook";
 import { escapeHtml } from "./components";
 import { FONT_STACK, MANA_CIRCLE_COLORS } from "./theme";
 import { ColorCode } from "../types";
-import { manaToWords, reelCoverPath, speakable, synthesizeVoice } from "./reel";
+import { manaToWords, reelCoverPath, speakable, synthesizeVoices } from "./reel";
 import { humanize } from "../skills/human";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -295,11 +295,12 @@ export async function buildComboReel(
   fs.mkdirSync(dir, { recursive: true });
   const { beats: script, hookScreen } = comboScript(c);
 
-  const voices: ({ file: string; seconds: number } | null)[] = [];
-  for (let i = 0; i < script.length; i++) {
-    onProgress(`Combo-Reel: Sprachaufnahme ${i + 1}/${script.length}`, (i / script.length) * 0.08);
-    voices.push(await synthesizeVoice(speakable(script[i].say), dir, `voice-${i}.wav`));
-  }
+  const voices = await synthesizeVoices(
+    script.map((b) => speakable(b.say)),
+    dir,
+    "voice-",
+    (s, p) => onProgress(`Combo-Reel: ${s}`, p)
+  );
   // Ohne Stimme: Lesezeit fuer die Untertitel (~15 Zeichen pro Sekunde)
   let t = 0;
   const beats: TimedBeat[] = script.map((b, i) => {

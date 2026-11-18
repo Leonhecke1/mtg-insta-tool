@@ -628,11 +628,12 @@ export async function buildReel(deck: Deck, jobDir: string, opts: ReelOptions = 
   const report = opts.onProgress ?? (() => undefined);
 
   // 1. Voice-over je Szene (optional)
-  const voices: ({ file: string; seconds: number } | null)[] = [];
-  for (let i = 0; i < script.beats.length; i++) {
-    if (ttsEnabled()) report(`Reel: Sprachaufnahme ${i + 1}/${script.beats.length}`, (i / script.beats.length) * 0.08);
-    voices.push(await synthesizeVoice(speakable(script.beats[i].say), jobDir, `reel-voice-${i}.wav`));
-  }
+  const voices = await synthesizeVoices(
+    script.beats.map((b) => speakable(b.say)),
+    jobDir,
+    "reel-voice-",
+    (s, p) => report(`Reel: ${s}`, p)
+  );
   const withVoice = voices.some(Boolean);
 
   // 2. Zeitachse: Szene so lang wie Mindestdauer bzw. Satz + Luft
@@ -711,9 +712,84 @@ export function reelCoverPath(videoFile: string): string {
  * Text-to-Speech mit Piper (https://github.com/rhasspy/piper), laeuft lokal
  * und kostenlos. Ohne PIPER_BIN/PIPER_MODEL gibt es kein Voice-over.
  */
-/** Ob eine Sprachausgabe (Piper) konfiguriert ist */
+/** Ob eine Sprachausgabe (Piper oder Dia) konfiguriert ist */
 export function ttsEnabled(): boolean {
-  return Boolean(config.piperBin && config.piperModel);
+  return diaEnabled() || Boolean(config.piperBin && config.piperModel);
+}
+
+function diaEnabled(): boolean {
+  return config.ttsEngine === "dia";
+}
+
+async function wavSeconds(file: string): Promise<number> {
+  const probe = await run(ffmpegPath!, ["-i", file], { maxBuffer: 8 * 1024 * 1024 }).catch(
+    (e: { stderr?: string }) => ({ stderr: e.stderr ?? "" })
+  );
+  const m = String(probe.stderr).match(/Duration: (\d+):(\d+):([\d.]+)/);
+  return m ? +m[1] * 3600 + +m[2] * 60 + parseFloat(m[3]) : 3;
+}
+
+/**
+ * Alle Saetze eines Reels vertonen. Mit TTS_ENGINE=dia laedt Nari Labs Dia
+ * das Modell einmal und spricht alle Szenen mit derselben Stimme
+ * (scripts/dia_tts.py). Scheitert Dia (fehlt, zu langsam, zu wenig RAM),
+ * uebernimmt Piper, damit das Reel trotzdem fertig wird.
+ */
+export async function synthesizeVoices(
+  texts: string[],
+  dir: string,
+  prefix: string,
+  report: (step: string, p?: number) => void = () => undefined
+): Promise<({ file: string; seconds: number } | null)[]> {
+  if (!ttsEnabled() || !ffmpegPath) return texts.map(() => null);
+  if (diaEnabled()) {
+    try {
+      return await synthesizeDia(texts, dir, prefix, report);
+    } catch (err) {
+      console.warn(`[tts] Dia fehlgeschlagen, nutze Piper: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+  const out: ({ file: string; seconds: number } | null)[] = [];
+  for (let i = 0; i < texts.length; i++) {
+    report(`Sprachaufnahme ${i + 1}/${texts.length}`, (i / texts.length) * 0.08);
+    out.push(await synthesizeVoice(texts[i], dir, `${prefix}${i}.wav`));
+  }
+  return out;
+}
+
+async function synthesizeDia(
+  texts: string[],
+  dir: string,
+  prefix: string,
+  report: (step: string, p?: number) => void
+): Promise<({ file: string; seconds: number } | null)[]> {
+  const jobFile = path.join(dir, `${prefix}dia-job.json`);
+  fs.writeFileSync(
+    jobFile,
+    JSON.stringify({ texts, outDir: dir, prefix, voicePrompt: config.diaVoicePrompt || null, seed: config.diaSeed })
+  );
+  const script = path.join(__dirname, "..", "..", "scripts", "dia_tts.py");
+  report(`Sprachaufnahme (Dia) 0/${texts.length}, Modell lädt …`, 0);
+  const { proc, done } = spawnFfmpeg(config.diaPython, [script, jobFile]);
+  let n = 0;
+  proc.stdout?.on("data", (d) => {
+    n += (String(d).match(/^OK \d+/gm) ?? []).length;
+    report(`Sprachaufnahme (Dia) ${n}/${texts.length}`, (n / texts.length) * 0.08);
+  });
+  const timer = setTimeout(() => proc.kill("SIGKILL"), config.diaTimeoutMin * 60_000);
+  try {
+    await done;
+  } finally {
+    clearTimeout(timer);
+    fs.rmSync(jobFile, { force: true });
+  }
+  const out: ({ file: string; seconds: number } | null)[] = [];
+  for (let i = 0; i < texts.length; i++) {
+    const file = path.join(dir, `${prefix}${i}.wav`);
+    out.push(texts[i] && fs.existsSync(file) ? { file, seconds: await wavSeconds(file) } : null);
+  }
+  if (!out.some(Boolean)) throw new Error("Dia hat keine Audiodateien erzeugt");
+  return out;
 }
 
 export async function synthesizeVoice(
@@ -721,7 +797,7 @@ export async function synthesizeVoice(
   jobDir: string,
   fileName: string
 ): Promise<{ file: string; seconds: number } | null> {
-  if (!ttsEnabled() || !ffmpegPath || !text) return null;
+  if (!config.piperBin || !config.piperModel || !ffmpegPath || !text) return null;
   const file = path.join(jobDir, fileName);
   {
     await new Promise<void>((resolve, reject) => {

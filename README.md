@@ -257,6 +257,10 @@ PIPER_MODEL=/opt/piper/en_US-ryan-medium.onnx   # Voice: .onnx + .onnx.json im s
 
 Ohne Piper bleiben Reels stumm.
 
+Natürlichere Stimme: [Nari Labs Dia](https://github.com/nari-labs/dia) mit `TTS_ENGINE=dia`
+(Python-venv, ~8 GB RAM, auf CPU langsam). `scripts/dia_tts.py` spricht alle Szenen eines Reels
+mit derselben Stimme (`DIA_VOICE_PROMPT`). Schlägt Dia fehl, springt Piper ein. Setup: SERVER_TODO.md, Abschnitt 8b.
+
 ## Handy-App (iOS) und Benachrichtigungen
 
 - **Login:** Formular mit dauerhaftem Cookie statt Basic Auth. Basic Auth geht in iOS-Homescreen-Apps

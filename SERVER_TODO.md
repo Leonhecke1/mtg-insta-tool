@@ -132,6 +132,32 @@ Erklär-Reels zu Combos im Stil „Janky Combos“: Karten einzeln, dann der Loo
 - Freigabe → „Eigenen Post einplanen“ → Typ „Combo-Reel (Spellbook)“, Link einfügen (leer = automatisch)
 - [ ] Test: ein Combo-Reel mit `https://commanderspellbook.com/combo/4821-5261/` anlegen, Video prüfen, Entwurf danach ablehnen
 
+## 8b. Neu: Stimme mit Nari Labs Dia (optional, natürlicher als Piper)
+
+[Dia](https://github.com/nari-labs/dia) (1,6 Mrd. Parameter, Englisch, kostenlos) klingt deutlich menschlicher als Piper. Es braucht aber **viel RAM** (CPU: ~8 GB frei) und ist ohne GPU **langsam** (mehrere Minuten pro Reel). Der Code ruft `scripts/dia_tts.py` auf, lädt das Modell einmal pro Reel und spricht alle Szenen mit derselben Stimme. Schlägt Dia fehl oder dauert es länger als `DIA_TIMEOUT_MIN`, nimmt er automatisch Piper.
+
+- [ ] Erst prüfen und Leon melden: `nproc`, `free -h`, `df -h /opt`, `nvidia-smi` (GPU?). **Unter 8 GB freiem RAM: nicht installieren**, bei Piper bleiben
+- [ ] **Vorher Leon fragen** (Download: Python-Pakete inkl. PyTorch ~1–2 GB, Modell ~6 GB von Hugging Face):
+  ```
+  sudo apt install -y python3-venv git
+  python3 -m venv /opt/dia/venv
+  /opt/dia/venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio
+  /opt/dia/venv/bin/pip install git+https://github.com/nari-labs/dia.git
+  sudo chown -R <dienst-user> /opt/dia
+  ```
+  (Mit NVIDIA-GPU stattdessen das CUDA-Torch-Paket.) Das Modell lädt beim ersten Lauf in den Hugging-Face-Cache des Dienst-Users.
+- [ ] `.env`:
+  ```
+  TTS_ENGINE=dia
+  DIA_PYTHON=/opt/dia/venv/bin/python
+  DIA_VOICE_PROMPT=/opt/dia/voice.wav   # fehlt die Datei, wird die erste Aufnahme zur festen Stimme
+  DIA_TIMEOUT_MIN=20
+  ```
+  Optional: `DIA_SEED` (andere Zahl = andere Stimme; danach `voice.wav`/`voice.txt` löschen), `DIA_TEMPERATURE` (Standard 1.6), `DIA_MODEL_ID`, `DIA_DEVICE`
+- [ ] Neustart, Testlauf ohne Veröffentlichung: `cd /opt/mtg-insta-tool && echo '{"texts":["This combo goes infinite with just two cards.","Here is how it works."],"outDir":"/tmp","prefix":"dia-"}' > /tmp/dia.json && time sudo -u <dienst-user> /opt/dia/venv/bin/python scripts/dia_tts.py /tmp/dia.json`. Dauer und Spitzen-RAM an Leon melden, WAVs anhören lassen
+- [ ] Gefällt die Stimme nicht: `voice.wav` und `voice.txt` löschen, `DIA_SEED` ändern, neues Reel erzeugen
+- [ ] Ist es zu langsam oder fehlt RAM: `TTS_ENGINE=piper` (Standard) und Neustart
+
 ## 9. Nach dem Test an Leon zurückmelden
 
 - Was läuft, was nicht (mit Logzeilen, ohne Secrets)
