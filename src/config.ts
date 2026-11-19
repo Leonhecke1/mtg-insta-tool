@@ -57,6 +57,16 @@ export const config = {
   // Max. Dauer fuer alle Sprachaufnahmen eines Reels (Minuten); CPU ist langsam
   diaTimeoutMin: parseFloat(optional("DIA_TIMEOUT_MIN", "20")),
 
+  // --- Kokoro (kokoro-onnx): natuerliche Stimme, die auch auf kleinen Servern laeuft ---
+  // TTS_ENGINE=kokoro
+  kokoroPython: optional("KOKORO_PYTHON", "/opt/kokoro/venv/bin/python"),
+  kokoroModel: optional("KOKORO_MODEL", "/opt/kokoro/kokoro-v1.0.int8.onnx"),
+  kokoroVoices: optional("KOKORO_VOICES", "/opt/kokoro/voices-v1.0.bin"),
+  // feste Stimme fuer alle Reels, z. B. am_michael, am_adam, am_fenrir, bm_george
+  kokoroVoice: optional("KOKORO_VOICE", "am_michael"),
+  kokoroSpeed: parseFloat(optional("KOKORO_SPEED", "1.0")),
+  kokoroTimeoutMin: parseFloat(optional("KOKORO_TIMEOUT_MIN", "10")),
+
   // --- VoiceStudio (github.com/debpalash/VoiceStudio, lokal per Docker) ---
   // TTS_ENGINE=voicestudio; OpenAI-kompatibler Endpunkt /v1/audio/speech
   voiceStudioUrl: optional("VOICESTUDIO_URL", "http://127.0.0.1:3900"),

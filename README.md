@@ -265,6 +265,9 @@ Oder [VoiceStudio](https://github.com/debpalash/VoiceStudio) als eigener Docker-
 (OpenAI-kompatibel, `/v1/audio/speech`, eigene/geklonte Stimme über `VOICESTUDIO_VOICE`). Fällt es aus, springt Piper ein.
 Setup und Lizenzhinweis (Standardmodell OmniVoice: nicht kommerziell): SERVER_TODO.md, Abschnitt 8c.
 
+**Empfohlen für kleine Server:** [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) mit `TTS_ENGINE=kokoro`
+(~88 MB, ohne GPU schnell, Apache-2.0, feste Stimme `KOKORO_VOICE`, `scripts/kokoro_tts.py`). Setup: SERVER_TODO.md, Abschnitt 8d.
+
 ## Handy-App (iOS) und Benachrichtigungen
 
 - **Login:** Formular mit dauerhaftem Cookie statt Basic Auth. Basic Auth geht in iOS-Homescreen-Apps

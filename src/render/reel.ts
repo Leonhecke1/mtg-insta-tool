@@ -716,7 +716,7 @@ export function reelCoverPath(videoFile: string): string {
  */
 /** Ob eine Sprachausgabe (Piper oder Dia) konfiguriert ist */
 export function ttsEnabled(): boolean {
-  return diaEnabled() || voiceStudioEnabled() || Boolean(config.piperBin && config.piperModel);
+  return ["dia", "voicestudio", "kokoro"].includes(config.ttsEngine) || Boolean(config.piperBin && config.piperModel);
 }
 
 function voiceStudioEnabled(): boolean {
@@ -873,6 +873,13 @@ export async function synthesizeVoices(
   report: (step: string, p?: number) => void = () => undefined
 ): Promise<({ file: string; seconds: number } | null)[]> {
   if (!ttsEnabled() || !ffmpegPath) return texts.map(() => null);
+  if (config.ttsEngine === "kokoro") {
+    try {
+      return await synthesizeKokoro(texts, dir, prefix, report);
+    } catch (err) {
+      console.warn(`[tts] Kokoro fehlgeschlagen, nutze Piper: ${err instanceof Error ? err.message : err}`);
+    }
+  }
   if (voiceStudioEnabled()) {
     try {
       return await synthesizeVoiceStudio(texts, dir, prefix, report);
@@ -892,6 +899,45 @@ export async function synthesizeVoices(
     report(`Sprachaufnahme ${i + 1}/${texts.length}`, (i / texts.length) * 0.08);
     out.push(await synthesizeVoice(texts[i], dir, `${prefix}${i}.wav`));
   }
+  return out;
+}
+
+/**
+ * Kokoro (scripts/kokoro_tts.py): laedt das kleine Modell einmal pro Reel und
+ * spricht alle Szenen mit derselben festen Stimme (KOKORO_VOICE).
+ */
+async function synthesizeKokoro(
+  texts: string[],
+  dir: string,
+  prefix: string,
+  report: (step: string, p?: number) => void
+): Promise<({ file: string; seconds: number } | null)[]> {
+  const jobFile = path.join(dir, `${prefix}kokoro-job.json`);
+  fs.writeFileSync(
+    jobFile,
+    JSON.stringify({ texts, outDir: dir, prefix, model: config.kokoroModel, voices: config.kokoroVoices, voice: config.kokoroVoice, speed: config.kokoroSpeed })
+  );
+  const script = path.join(__dirname, "..", "..", "scripts", "kokoro_tts.py");
+  report(`Sprachaufnahme (Kokoro) 0/${texts.length}`, 0);
+  const { proc, done } = spawnFfmpeg(config.kokoroPython, [script, jobFile]);
+  let n = 0;
+  proc.stdout?.on("data", (d) => {
+    n += (String(d).match(/^OK \d+/gm) ?? []).length;
+    report(`Sprachaufnahme (Kokoro) ${n}/${texts.length}`, (n / texts.length) * 0.08);
+  });
+  const timer = setTimeout(() => proc.kill("SIGKILL"), config.kokoroTimeoutMin * 60_000);
+  try {
+    await done;
+  } finally {
+    clearTimeout(timer);
+    fs.rmSync(jobFile, { force: true });
+  }
+  const out: ({ file: string; seconds: number } | null)[] = [];
+  for (let i = 0; i < texts.length; i++) {
+    const file = path.join(dir, `${prefix}${i}.wav`);
+    out.push(texts[i] && fs.existsSync(file) ? { file, seconds: await wavSeconds(file) } : null);
+  }
+  if (!out.some(Boolean)) throw new Error("Kokoro hat keine Audiodateien erzeugt");
   return out;
 }
 
