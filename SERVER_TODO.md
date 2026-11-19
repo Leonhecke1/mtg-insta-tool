@@ -190,6 +190,36 @@ Erklär-Reels zu Combos im Stil „Janky Combos“: Karten einzeln, dann der Loo
 - [ ] Neustart, ein Combo-Reel erzeugen, Log auf `[tts] VoiceStudio fehlgeschlagen` prüfen, anhören: alle Szenen dieselbe Stimme? Entwurf danach ablehnen
 - [ ] Lizenz: VoiceStudio selbst ist AGPL-3.0 und läuft unverändert als eigener Dienst (wir binden keinen Code ein). **Achtung:** Das Standardmodell **OmniVoice** führt VoiceStudio in `docs/licensing/model-inventory.md` als **nicht kommerziell**. Für einen Hobby-Account ok, sobald floating.mana Geld verdient (Sponsoring, Affiliate) nicht mehr. Leon entscheidet; ein anderes Modell wird über `VOICESTUDIO_MODEL` gewählt (Lizenz vorher in derselben Datei prüfen)
 
+## 8d. Neu: Stimme mit Kokoro (ersetzt VoiceStudio, Server war zu schwach)
+
+[Kokoro](https://github.com/thewh1teagle/kokoro-onnx) hat ~82 Mio. Parameter (int8-Modell ~88 MB) und läuft ohne GPU in Echtzeit oder schneller. Apache-2.0, kommerziell nutzbar. Feste Stimme = jede Szene gleich. Der Code ruft `scripts/kokoro_tts.py` auf (Modell einmal pro Reel geladen), bei Fehler springt Piper ein.
+
+- [ ] VoiceStudio stoppen: `docker stop voicestudio && docker update --restart=no voicestudio`. Ob Container, Image und Volume (`voicestudio-data`) gelöscht werden sollen: **Leon fragen**
+- [ ] **Vorher Leon fragen** (Download: Python-Pakete ~100 MB, Modell ~88 MB + Stimmen ~27 MB von GitHub):
+  ```
+  sudo apt install -y python3-venv
+  sudo mkdir -p /opt/kokoro && sudo chown <dienst-user> /opt/kokoro
+  python3 -m venv /opt/kokoro/venv
+  /opt/kokoro/venv/bin/pip install kokoro-onnx soundfile
+  cd /opt/kokoro
+  curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx
+  curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+  ```
+- [ ] Testlauf ohne Veröffentlichung, Dauer und RAM messen:
+  ```
+  cd /opt/mtg-insta-tool
+  echo '{"texts":["Two cards, and you get infinite mana. Let me show you how that works.","First up, Dramatic Reversal, which untaps all nonland permanents you control."],"outDir":"/tmp","prefix":"kok-","model":"/opt/kokoro/kokoro-v1.0.int8.onnx","voices":"/opt/kokoro/voices-v1.0.bin","voice":"am_michael"}' > /tmp/kok.json
+  /usr/bin/time -v /opt/kokoro/venv/bin/python scripts/kokoro_tts.py /tmp/kok.json
+  ```
+  `/tmp/kok-0.wav` und `/tmp/kok-1.wav` Leon zum Anhören geben (gleiche Stimme in beiden?)
+- [ ] `.env`:
+  ```
+  TTS_ENGINE=kokoro
+  KOKORO_VOICE=am_michael
+  ```
+  Andere männliche Stimmen zum Vergleich: `am_adam`, `am_fenrir`, `am_puck`, `bm_george` (britisch). Optional `KOKORO_SPEED` (1.0), Pfade `KOKORO_PYTHON`, `KOKORO_MODEL`, `KOKORO_VOICES` (Standard wie oben)
+- [ ] Neustart, ein Combo-Reel erzeugen, Log auf `[tts] Kokoro fehlgeschlagen` prüfen, Entwurf danach ablehnen
+
 ## 9. Nach dem Test an Leon zurückmelden
 
 - Was läuft, was nicht (mit Logzeilen, ohne Secrets)
