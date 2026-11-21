@@ -121,6 +121,28 @@ function resultShort(c: Combo): string {
 }
 
 /**
+ * Faehigkeit zum Vorlesen: ohne Faehigkeitswort-Praefix ("Landfall — Whenever ..." -> "Whenever ..."),
+ * Modi als Aufzaehlung ("choose up to one — • Return A. • Return B." -> "choose up to one: return A, or return B").
+ */
+function spokenAbility(a: string): string {
+  let t = a.trim().replace(/^[A-Z][a-z]+(?: [a-z]+)* — (?=[A-Z])/, "");
+  if (t.includes("•")) {
+    const [head, ...modes] = t.split("•").map((x) => x.trim().replace(/\.$/, ""));
+    t = `${head.replace(/\s*—\s*$/, "")}: ${modes.map(lcFirst).join(", or ")}`;
+  }
+  return t.replace(/\.$/, "");
+}
+
+/** Kosten einer aktivierten Faehigkeit als Verbphrase ("{T}" -> "tap it", "{3}" -> "pay {3}"), sonst null */
+function spokenCost(cost: string): string | null {
+  if (!cost || cost.length > 50 || /["”]/.test(cost)) return null;
+  const parts = cost.split(/,\s*/).map((p) =>
+    p === "{T}" ? "tap it" : p === "{Q}" ? "untap it" : /^(\{[^}]+\})+$/.test(p) ? `pay ${p}` : startsWithVerb(p) ? lcFirst(p) : null
+  );
+  return parts.every(Boolean) ? parts.join(" and ") : null;
+}
+
+/**
  * Combo-Schritt zum Vorlesen: vollstaendig (der Text steht nicht mehr in einer Box),
  * nur sehr lange Schritte am ersten Satzende kuerzen. Nie mitten im Satz abbrechen.
  */
@@ -149,25 +171,41 @@ export function comboScript(c: Combo): { beats: Beat[]; hookScreen: string } {
   ];
   // Jede Karte: die entscheidende Faehigkeit, als Teil einer Erzaehlung ("First up, X, which ...").
   // Kartentext wird IMMER vollstaendig vorgelesen, nie gekuerzt (sonst endet es mit "... and").
+  // Hat eine Karte mehrere relevante Faehigkeiten (z. B. Peregrin Took: Ersatzeffekt + "Sacrifice
+  // three Foods: Draw a card"), wird jede vorgelesen, sonst fehlt genau der Teil, der den Loop erklaert.
   c.cards.forEach((card, i) => {
-    const key = (card.keyText ?? "").trim().replace(/\.$/, "");
+    const abilities = (card.keyAbilities ?? (card.keyText ?? "").split("\n"))
+      .map((a) => spokenAbility(a))
+      .filter(Boolean);
     const intro = i === 0 ? "First up," : i === n - 1 ? "And then there's" : "Next up,";
-    const which = key ? asWhichClause(key) : null;
-    const act = activatedEffect(key.replace(/\. If you do, /i, ", and if you do, "));
-    const say = !key
-      ? `${intro} ${card.shortName}.`
-      : act
-        ? // "{2}, {T}: You may copy ..." -> "When you activate it, you may copy ..."
-          `${intro} ${card.shortName}. When you activate it, ${lcFirst(act.replace(/\.$/, ""))}.`
-        : which
-          ? `${intro} ${card.shortName}, ${which}.`
-          : `${intro} ${card.shortName}. What matters here is that ${lcFirst(key)}.`;
+    let actCount = 0;
+    const parts = abilities.map((key, k) => {
+      const lead = k === 0 ? `${intro} ${card.shortName}` : "";
+      const act = activatedEffect(key.replace(/\. If you do, /i, ", and if you do, "));
+      const which = asWhichClause(key);
+      if (act) {
+        const cost = key.slice(0, key.length - act.length).replace(/:\s*$/, "").trim();
+        // Faehigkeit in Anfuehrungszeichen (Soulbond o. ae.): '... under your control."' -> ohne '."'
+        const effect = act.replace(/["”]?\.?["”]?$/, "");
+        const costSaid = spokenCost(cost);
+        const sentence =
+          costSaid && startsWithVerb(effect) && !/\. /.test(effect)
+            ? // "Sacrifice three Foods: Draw a card" -> "You can sacrifice three Foods to draw a card"
+              // "{3}: Untap this artifact" -> "You can pay {3} to untap this artifact"
+              `You can ${actCount++ ? "also " : ""}${costSaid} to ${lcFirst(effect)}.`
+            : // "{2}, {T}: You may copy ..." -> "When you activate it, you may copy ..."
+              `${actCount++ ? "And when" : "When"} you activate it, ${lcFirst(effect)}.`;
+        return k === 0 ? `${lead}. ${sentence}` : sentence;
+      }
+      if (which) return k === 0 ? `${lead}, ${which}.` : `It also ${which.replace(/^which /, "")}.`;
+      return k === 0 ? `${lead}. What matters here is that ${lcFirst(key)}.` : `On top of that, ${lcFirst(key)}.`;
+    });
     beats.push({
       kind: "piece",
       card: i,
       base: 3,
-      say,
-      text: key,
+      say: parts.length ? parts.join(" ") : `${intro} ${card.shortName}.`,
+      text: abilities.join("\n"),
     });
   });
   // Der Loop: ein Schritt pro Szene (max. 3), "Repeat" wird zum Unendlich-Moment

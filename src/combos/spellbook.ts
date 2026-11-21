@@ -21,7 +21,9 @@ export interface ComboCard {
   oracle: string;
   typeLine: string;
   colors: string[];
-  /** Satz aus dem Kartentext, der fuer die Combo zaehlt */
+  /** Faehigkeiten aus dem Kartentext, die fuer die Combo zaehlen (Oracle-Reihenfolge) */
+  keyAbilities?: string[];
+  /** keyAbilities zeilenweise verbunden (aeltere gespeicherte Combos haben nur das) */
   keyText?: string;
 }
 
@@ -84,26 +86,51 @@ const EXCLUDED_CARDS = ["Sol Ring"];
 const shortName = (n: string) => n.split(" // ")[0].split(",")[0].trim();
 const stripReminder = (t: string) => t.replace(/\([^)]*\)/g, "").replace(/[ \t]+/g, " ").trim();
 
-/** Satz aus dem Oracle-Text, der die meisten Woerter mit den Combo-Schritten teilt */
-function keySentence(oracle: string, steps: string[], cardName = ""): string | undefined {
+// Woerter, die in fast jedem Kartentext stehen und nichts ueber den Zusammenhang sagen
+const GENERIC = new Set(
+  ("this that your with when whenever then each other target card control under player opponent creature permanent from into onto have more than " +
+    "the and you for its may can are was not all one any own has his her get put out way")
+    .split(" ")
+);
+
+/**
+ * ALLE Faehigkeiten (ganze Zeilen, in Oracle-Reihenfolge), die fuer die Combo zaehlen.
+ * Relevant ist eine Faehigkeit, wenn sie Woerter mit den Combo-Schritten ODER mit dem
+ * Text der anderen Combo-Karten teilt. Letzteres ist noetig, weil Spellbook implizite
+ * Effekte oft nicht nennt: bei Peregrin Took + Nuka-Cola Vending Machine steht der
+ * Ersatzeffekt ("... plus an additional Food token ...") in keinem Schritt, ohne ihn
+ * gibt es aber keinen Loop.
+ */
+function keyAbilities(oracle: string, steps: string[], cardName: string, otherOracles: string[]): string[] {
   // grober Wortstamm: "lands"/"land", "untapped"/"untap", "creating"/"create"
-  const stem = (w: string) => w.replace(/(ing|ed|es|s)$/, "");
-  const words = (s: string) => new Set((s.toLowerCase().match(/[a-z]{4,}/g) ?? []).map(stem));
+  // plus Doppelkonsonant: "untapping" -> "untapp" -> "untap", "tapped" -> "tap"
+  const stem = (w: string) => w.replace(/(ing|ed|es|s)$/, "").replace(/([bdgklmnprt])\1$/, "$1");
+  // ab 3 Buchstaben, sonst fallen "add", "tap", "pay" weg
+  const words = (s: string) => new Set((s.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter((w) => !GENERIC.has(w)).map(stem));
   // nur Schritte, die diese Karte erwaehnen (sonst alle)
   const short = shortName(cardName).toLowerCase();
   const mine = steps.filter((s) => short && s.toLowerCase().includes(short));
   const stepWords = words((mine.length ? mine : steps).join(" ").toLowerCase().split(short).join(" "));
-  const sentences = stripReminder(oracle)
+  const otherWords = words(otherOracles.map(stripReminder).join(" "));
+  const abilities = stripReminder(oracle)
     // ganze Faehigkeiten (Zeilen), sonst entstehen Bruchstuecke wie "If you do, ..."
     .split(/\n/)
     .map((x) => x.trim())
-    .filter((x) => x.length > 12);
-  let best: { s: string; score: number } | undefined;
-  for (const s of sentences) {
-    const score = [...words(s)].filter((w) => stepWords.has(w)).length;
-    if (!best || score > best.score) best = { s, score };
-  }
-  return best?.s;
+    // Modi ("• Return target spell ...") gehoeren zur Zeile davor ("choose up to one —")
+    .reduce<string[]>((acc, x) => (/^•/.test(x) && acc.length ? [...acc.slice(0, -1), `${acc[acc.length - 1]} ${x}`] : [...acc, x]), [])
+    .filter((x) => x.length > 12)
+    // reine Schluesselwort-Zeilen ("Flying, vigilance", "Bestow {1}{G}") erklaeren keinen Loop
+    .filter((x) => !/^[A-Za-z ]+(, [A-Za-z ]+)*$/.test(x) || x.split(" ").length > 4)
+    .filter((x) => !/^[A-Z][a-z]+( [a-z]+)? ?(\{[^}]+\})+$/.test(x));
+  const scored = abilities.map((s) => {
+    const w = [...words(s)];
+    return { s, steps: w.filter((x) => stepWords.has(x)).length, other: w.filter((x) => otherWords.has(x)).length };
+  });
+  const keep = scored.filter((a) => a.steps > 0 || a.other > 0).map((a) => a.s);
+  if (keep.length) return keep;
+  // nichts passt erkennbar: die Faehigkeit mit den meisten Treffern (oder die einzige)
+  const best = [...scored].sort((a, b) => b.steps + b.other - (a.steps + a.other))[0];
+  return best ? [best.s] : [];
 }
 
 function toCombo(v: any, cards: ComboCard[]): Combo {
@@ -118,7 +145,10 @@ function toCombo(v: any, cards: ComboCard[]): Combo {
   return {
     id: v.id,
     url: `https://commanderspellbook.com/combo/${v.id}/`,
-    cards: cards.map((c) => ({ ...c, keyText: keySentence(c.oracle, steps, c.name) })),
+    cards: cards.map((c) => {
+      const abilities = keyAbilities(c.oracle, steps, c.name, cards.filter((o) => o !== c).map((o) => o.oracle));
+      return { ...c, keyAbilities: abilities, keyText: abilities.join("\n") || undefined };
+    }),
     results: (v.produces ?? []).map((p: any) => p.feature?.name).filter(Boolean),
     steps,
     prerequisites: prereq,
