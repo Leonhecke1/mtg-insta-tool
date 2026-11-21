@@ -147,17 +147,18 @@ export function comboScript(c: Combo): { beats: Beat[]; hookScreen: string } {
         : `${NUM[n] ?? n} cards that ${trimClause(lower, 70)}. Let me show you how.`,
     },
   ];
-  // Jede Karte: der entscheidende Satz, als Teil einer Erzaehlung ("First up, X, which ...")
+  // Jede Karte: die entscheidende Faehigkeit, als Teil einer Erzaehlung ("First up, X, which ...").
+  // Kartentext wird IMMER vollstaendig vorgelesen, nie gekuerzt (sonst endet es mit "... and").
   c.cards.forEach((card, i) => {
-    const key = trimClause(card.keyText ?? "", 110);
+    const key = (card.keyText ?? "").trim().replace(/\.$/, "");
     const intro = i === 0 ? "First up," : i === n - 1 ? "And then there's" : "Next up,";
     const which = key ? asWhichClause(key) : null;
-    const act = activatedEffect((card.keyText ?? "").replace(/. If you do, /i, ", and if you do, "));
+    const act = activatedEffect(key.replace(/\. If you do, /i, ", and if you do, "));
     const say = !key
       ? `${intro} ${card.shortName}.`
       : act
         ? // "{2}, {T}: You may copy ..." -> "When you activate it, you may copy ..."
-          `${intro} ${card.shortName}. When you activate it, ${lcFirst(trimClause(act, 110))}.`
+          `${intro} ${card.shortName}. When you activate it, ${lcFirst(act.replace(/\.$/, ""))}.`
         : which
           ? `${intro} ${card.shortName}, ${which}.`
           : `${intro} ${card.shortName}. What matters here is that ${lcFirst(key)}.`;
